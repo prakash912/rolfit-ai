@@ -18,6 +18,169 @@ const ATS_USE_LINKEDIN = process.env.ATS_USE_LINKEDIN === "true"; // default fal
 // Context guards on ambiguous tags (recommended "guarded"; set "naive" to disable)
 const ATS_CONTEXT_MODE = process.env.ATS_CONTEXT_MODE || "guarded"; // "guarded" | "naive"
 
+const ROLE_ANCHOR_REGEX = {
+  hr_recruiter:
+    /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
+  software_engineer:
+    /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
+  qa_engineer:
+    /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
+  project_manager:
+    /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
+  business_analyst:
+    /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
+  tech_lead:
+    /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
+  drupal_developer: /\b(drupal|twig|drush|module|hook_|paragraphs)\b/i,
+
+  // extra granular roles you added
+  frontend_engineer_react:
+    /\b(react|hooks|redux|zustand|next(?:js)?|vite|webpack|typescript|jest|testing library|cypress|playwright|mui|tailwind)\b/i,
+  frontend_engineer_vue_nuxt:
+    /\b(vue(?:3)?|composition api|pinia|vuex|nuxt(?:3)?|vite|typescript|jest|vitest|cypress|playwright|vuetify|quasar|tailwind)\b/i,
+  backend_engineer_node:
+    /\b(node(?:js)?|express|nest|api|rest|graphql|postgres|mysql|mongodb|prisma|jwt|oauth|redis|kafka)\b/i,
+  backend_engineer_python:
+    /\b(python|django|fastapi|flask|pydantic|api|postgres|mysql|mongodb|sqlalchemy|jwt|oauth|celery|asyncio)\b/i,
+  aws_devops_engineer:
+    /\b(aws|ec2|s3|iam|vpc|rds|lambda|cloudfront|api gateway|terraform|cloudformation|cdk|docker|kubernetes|eks|ecr|jenkins|github actions|gitlab ci|cloudwatch|grafana|prometheus)\b/i,
+};
+
+// --- knobs ---
+const MIN_RESUME_LEN_FOR_INSIGHTS =
+  Number(process.env.MIN_RESUME_LEN_FOR_INSIGHTS || 200);
+
+// true if resume is long enough AND plausibly matches the chosen role
+function resumeValidForInsights(resumeText, role, detChecklist = []) {
+  const txt = String(resumeText || "");
+  if (txt.length < MIN_RESUME_LEN_FOR_INSIGHTS) return false;
+
+  const looksLikeRole = ROLE_ANCHOR_REGEX[role]
+    ? ROLE_ANCHOR_REGEX[role].test(txt.toLowerCase())
+    : true;
+
+  const passCount = Array.isArray(detChecklist)
+    ? detChecklist.filter((r) => r.status === "Pass").length
+    : 0;
+  const coverage = passCount / Math.max(1, detChecklist.length);
+
+  // accept if anchor hits OR ≥2 checklist passes OR ≥20% coverage
+  return looksLikeRole || passCount >= 2 || coverage >= 0.2;
+}
+
+// deterministic fallback (used when no LLM or LLM fails)
+function buildNextStepsDeterministic({
+  jd,
+  jd_checklist,
+  ats,
+  deliveryDet,
+  formattingDet,
+  impactDet,
+  roleFitMerged,
+}) {
+  const steps = [];
+  const mustSet = new Set((jd.items || []).filter((i) => i.must).map((i) => i.id));
+  const failedMusts = (jd_checklist || [])
+    .filter((r) => r.status !== "Pass" && mustSet.has(r.id))
+    .map((r) => r.skill || r.id);
+
+  if (failedMusts.length)
+    steps.push(
+      `Address missing MUSTs: ${failedMusts.slice(0, 4).join(", ")} (add concrete bullets/projects).`
+    );
+
+  const atsPct = scoreKeywordsFromATS(ats) ?? 0;
+  if (atsPct < 60)
+    steps.push(
+      `Blend missing keywords into truthful bullets: ${(ats.missing || [])
+        .slice(0, 6)
+        .join(", ")}.`
+    );
+
+  if (deliveryDet.score < 60)
+    steps.push(
+      "Document CI/CD & monitoring; add a pipeline yaml and post-deploy checks in a public repo."
+    );
+
+  if (impactDet < 40)
+    steps.push("Add 2–3 quantified outcomes (%, time, cost, throughput) per project.");
+
+  if (formattingDet < 60)
+    steps.push("Standardize headings, bullets, and dates; keep it concise and scannable.");
+
+  if (!steps.length && roleFitMerged.score < 70)
+    steps.push("Tighten bullets to map directly to the JD items with evidence.");
+
+  return steps.slice(0, 6);
+}
+
+// AI generator (Groq) – returns [] on any issue
+async function buildNextStepsAI({
+  client,
+  model,
+  role,
+  jd,
+  jd_checklist,
+  ats,
+  techDepthDet,
+  deliveryDet,
+  formattingDet,
+  impactDet,
+  recencyDet,
+  roleFitMerged,
+}) {
+  try {
+    const mustSet = new Set((jd.items || []).filter((i) => i.must).map((i) => i.id));
+    const failedMusts = (jd_checklist || [])
+      .filter((r) => r.status !== "Pass" && mustSet.has(r.id))
+      .map((r) => r.skill || r.id);
+
+    const data = {
+      role,
+      components: {
+        jd_fit: roleFitMerged.score,
+        tech_depth: techDepthDet.score,
+        delivery: deliveryDet.score,
+        formatting: formattingDet,
+        impact: impactDet,
+        recency: recencyDet,
+        must_coverage: roleFitMerged.mustCoverage,
+      },
+      must_fails: failedMusts.slice(0, 6),
+      ats_missing: (ats?.missing || []).slice(0, 10),
+      top_gaps: (roleFitMerged.gaps || []).slice(0, 8),
+    };
+
+    const prompt = `Return STRICT JSON only: {"steps":["..."]}.
+You are a concise career coach for the role "${role}".
+Using the ANALYSIS JSON below, propose 3–6 specific, actionable next steps to improve the candidate's resume *for this role*.
+Rules:
+- Short imperative steps (≤120 chars each), concrete tools/metrics where helpful.
+- Do NOT invent experience. Focus on projects, documentation, and truthful phrasing.
+- Prioritize: missing MUSTs → ATS keywords → delivery/impact/formatting gaps.
+- If there are no obvious gaps, suggest portfolio/demo proof of current stack.
+
+ANALYSIS:
+${JSON.stringify(data, null, 2)}`;
+
+    const completion = await client.chat.completions.create({
+      model,
+      temperature: 0.2,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const raw = (completion.choices?.[0]?.message?.content || "")
+      .replace(/```json|```/g, "")
+      .trim();
+    const parsed = tryParseJSON(raw);
+    const out = Array.isArray(parsed?.steps) ? parsed.steps : [];
+    return out.map((s) => String(s).trim()).filter(Boolean).slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+
 function atsBaseText(resumeText, liText) {
   return stripWhitespace(
     (resumeText || "") + (ATS_USE_LINKEDIN ? "\n" + (liText || "") : "")
@@ -364,9 +527,11 @@ function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
       /\b(aws|ec2|s3|iam|vpc|rds|lambda|cloudfront|api gateway|terraform|cloudformation|cdk|docker|kubernetes|eks|ecr|jenkins|github actions|gitlab ci|cloudwatch|grafana|prometheus)\b/i,
   };
 
-  const looksLikeRole = ROLE_ANCHORS[role]
-    ? ROLE_ANCHORS[role].test(raw)
-    : true;
+  // How we recognize if the resume *looks like* the selected role
+
+
+  const looksLikeRole = ROLE_ANCHOR_REGEX[role] ? ROLE_ANCHOR_REGEX[role].test(raw) : true;
+
 
   // HR false-positive collision from DevOps “pipeline”
   const DEVOPS_NEAR =
@@ -742,6 +907,27 @@ function slugifyId(s) {
     .replace(/^_|_$/g, "")
     .slice(0, 40) || "item";
 }
+
+// Env knob (tweak without code changes)
+
+/** Return true if resume is long enough AND plausibly matches the chosen role */
+// function resumeValidForInsights(resumeText, role, detChecklist = []) {
+//   const txt = String(resumeText || "");
+//   if (txt.length < MIN_RESUME_LEN_FOR_INSIGHTS) return false;
+
+//   const looksLikeRole =
+//     ROLE_ANCHOR_REGEX[role] ? ROLE_ANCHOR_REGEX[role].test(txt.toLowerCase()) : true;
+
+//   // Deterministic evidence from JD checklist
+//   const passCount = Array.isArray(detChecklist)
+//     ? detChecklist.filter(r => r.status === "Pass").length
+//     : 0;
+//   const coverage = passCount / Math.max(1, detChecklist.length);
+
+//   // Accept if: anchors match OR at least 2 checklist passes OR 20% coverage
+//   return looksLikeRole || passCount >= 2 || coverage >= 0.2;
+// }
+
 
 // Parse freeform JD text into { weights, items[] } compatible with JD_BANK
 // function buildJDFromText(jdText) {
@@ -2828,75 +3014,73 @@ function scoreRoleFit(jdChecklist = [], jdWeights = {}, jdItems = []) {
   };
 }
 
+// Strict tech depth from RESUME only.
+// - 0% if resume missing/too short
+// - No baseline points; no boost unless at least one area is detected
+const MIN_RESUME_LEN_FOR_TECH = Number(process.env.MIN_RESUME_LEN_FOR_TECH || 200);
+
 function scoreTechDepth(fullText) {
-  const t = (fullText || "").toLowerCase();
+  const t = (fullText || "").toLowerCase().replace(/\s+/g, " ").trim();
+
+  // If resume missing/clearly wrong, return 0
+  if (!t || t.length < MIN_RESUME_LEN_FOR_TECH) {
+    const zeroAreas = [
+      { area: "frontend",  level: "Weak", value: 0, evidence: [] },
+      { area: "backend",   level: "Weak", value: 0, evidence: [] },
+      { area: "databases", level: "Weak", value: 0, evidence: [] },
+      { area: "cloud",     level: "Weak", value: 0, evidence: [] },
+      { area: "security",  level: "Weak", value: 0, evidence: [] },
+    ];
+    return { score: 0, core_stack: zeroAreas };
+  }
+
   const has = (...ks) => ks.some((k) => t.includes(k));
 
   const feats = {
-    frontend: has(
-      "react",
-      "vue",
-      "next",
-      "ssr",
-      "lazy load",
-      "bundle",
-      "redux",
-      "zustand"
-    ),
-    backend: has("node", "express", "nest", "api", "microservice", "grpc"),
-    databases: has(
-      "postgres",
-      "mysql",
-      "mongodb",
-      "dynamodb",
-      "index",
-      "query",
-      "sql"
-    ),
-    cloud: has(
-      "aws",
-      "ec2",
-      "s3",
-      "lambda",
-      "cloudfront",
-      "api gateway",
-      "docker",
-      "kubernetes"
-    ),
-    security: has("jwt", "oauth", "oauth2", "session", "owasp"),
+    frontend:  has("react","vue","next","ssr","lazy load","bundle","redux","zustand"),
+    backend:   has("node","express","nest","api","microservice","grpc"),
+    databases: has("postgres","mysql","mongodb","dynamodb","index","query","sql"),
+    cloud:     has("aws","ec2","s3","lambda","cloudfront","api gateway","docker","kubernetes"),
+    security:  has("jwt","oauth","oauth2","session","owasp"),
   };
-  const verbsStrong = (
-    t.match(/\b(designed|architected|led|scaled|mentored|owned)\b/gi) || []
-  ).length;
-  const metrics = (t.match(/\b(\d+%|x\d|\d+x|ms|reduced|improved)\b/gi) || [])
-    .length;
-  const years = extractYears(t) || 2;
 
+  // If no area detected at all → 0
+  if (!Object.values(feats).some(Boolean)) {
+    const zeroAreas = [
+      { area: "frontend",  level: "Weak", value: 0, evidence: [] },
+      { area: "backend",   level: "Weak", value: 0, evidence: [] },
+      { area: "databases", level: "Weak", value: 0, evidence: [] },
+      { area: "cloud",     level: "Weak", value: 0, evidence: [] },
+      { area: "security",  level: "Weak", value: 0, evidence: [] },
+    ];
+    return { score: 0, core_stack: zeroAreas };
+  }
+
+  // No baselines: areas start at 0 unless we detect signals
   let area = {
-    frontend: feats.frontend ? 0.7 : 0.2,
-    backend: feats.backend ? 0.7 : 0.2,
-    databases: feats.databases ? 0.6 : 0.2,
-    cloud: feats.cloud ? 0.7 : 0.2,
-    security: feats.security ? 0.5 : 0.1,
+    frontend:  feats.frontend  ? 0.7 : 0,
+    backend:   feats.backend   ? 0.7 : 0,
+    databases: feats.databases ? 0.6 : 0,
+    cloud:     feats.cloud     ? 0.7 : 0,
+    security:  feats.security  ? 0.5 : 0,
   };
+
+  // Boost only if some evidence exists; apply only to non-zero areas
+  const verbsStrong = (t.match(/\b(designed|architected|led|scaled|mentored|owned)\b/gi) || []).length;
+  const metrics     = (t.match(/\b(\d+%|x\d|\d+x|ms|reduced|improved)\b/gi) || []).length;
+  const years       = extractYears(t) || 0; // no default of 2
   const boost = clamp01(
     0.1 * Math.min(verbsStrong, 10) +
-      0.05 * Math.min(metrics, 10) +
-      Math.min(years, 8) / 80
+    0.05 * Math.min(metrics, 10) +
+    Math.min(years, 8) / 80
   );
-  for (const k of Object.keys(area)) area[k] = clamp01(area[k] + boost);
 
-  const weights = {
-    frontend: 0.22,
-    backend: 0.22,
-    databases: 0.18,
-    cloud: 0.22,
-    security: 0.16,
-  };
-  const overall = Object.entries(area).reduce(
-    (s, [k, v]) => s + v * weights[k],
-    0
-  );
+  for (const k of Object.keys(area)) {
+    if (area[k] > 0) area[k] = clamp01(area[k] + boost);
+  }
+
+  const weights = { frontend: 0.22, backend: 0.22, databases: 0.18, cloud: 0.22, security: 0.16 };
+  const overall = Object.entries(area).reduce((s, [k, v]) => s + v * weights[k], 0);
 
   const toLevel = (v) => (v >= 0.85 ? "Strong" : v >= 0.65 ? "Medium" : "Weak");
   return {
@@ -2909,6 +3093,7 @@ function scoreTechDepth(fullText) {
     })),
   };
 }
+
 
 function scoreDelivery(fullText) {
   const t = (fullText || "").toLowerCase();
@@ -3641,42 +3826,109 @@ app.post(
           : `Low risk profile.`,
       ];
 
+      // const validForInsights = resumeValidForInsights(resumeText, role, detChecklist);
+      const validForInsights = resumeValidForInsights(resumeText, role, detChecklist);
+
+let recommended_next_steps = [];
+let next_steps_source = "suppressed_invalid_resume";
+
+if (validForInsights) {
+  // Try AI first (if key present), then deterministic fallback
+  if (process.env.GROQ_API_KEY) {
+    const aiSteps = await buildNextStepsAI({
+      client,
+      model,
+      role,
+      jd,
+      jd_checklist,
+      ats,
+      techDepthDet,
+      deliveryDet,
+      formattingDet,
+      impactDet,
+      recencyDet,
+      roleFitMerged,
+    });
+    if (aiSteps.length) {
+      recommended_next_steps = aiSteps;
+      next_steps_source = "llm";
+    }
+  }
+
+  if (!recommended_next_steps.length) {
+    recommended_next_steps = buildNextStepsDeterministic({
+      jd,
+      jd_checklist,
+      ats,
+      deliveryDet,
+      formattingDet,
+      impactDet,
+      roleFitMerged,
+    });
+    next_steps_source = "deterministic";
+  }
+} else {
+  // Nothing for wrong/very-short/mismatched resumes
+  recommended_next_steps = [];
+  next_steps_source = "resume_invalid";
+}
+
+      let strengths = [];
+let weaknesses = [];
+let hr_strengths_rich = [];
+let hr_weaknesses_rich = [];
+let hr_interview_probes = [];
+let hr_summary = null;
+
+
+if (validForInsights) {
+  // Prefer LLM bullets if present; top-up with deterministic
+  const strengthsLLM = Array.isArray(parsed.strengths)
+    ? parsed.strengths.map(s => String(s).trim()).filter(Boolean)
+    : [];
+  const weaknessesLLM = Array.isArray(parsed.weaknesses)
+    ? parsed.weaknesses.map(s => String(s).trim()).filter(Boolean)
+    : [];
+
+  const hrDet = buildDeterministicHRInsights({
+    roleFit: roleFitMerged.score,
+    techDepth: techDepthDet.score,
+    delivery: deliveryDet.score,
+    atsPct: scoreKeywordsFromATS(ats) ?? 0,
+    formatting: formattingDet,
+    impact: impactDet,
+    recency: recencyDet,
+    jd,
+    jdChecklist: jd_checklist,   // <-- ensure you pass jd_checklist here
+    ats,
+    resumeText,
+    liText,
+    candidateData,
+  });
+
+  strengths = uniqKeepOrder([ ...strengthsLLM, ...hrDet.strengths ]).slice(0, 5);
+  weaknesses = uniqKeepOrder([ ...weaknessesLLM, ...hrDet.weaknesses ]).slice(0, 4);
+  if (strengths.length < 3) strengths = hrDet.strengths;   // keep your guard
+  if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
+
+  hr_strengths_rich   = hrDet.hr_strengths_rich;
+  hr_weaknesses_rich  = hrDet.hr_weaknesses_rich;
+  hr_interview_probes = hrDet.hr_interview_probes;
+  hr_summary          = hrDet.hr_summary;
+} else {
+  // Suppress insights for wrong/empty/mismatched resumes
+  strengths = [];
+  weaknesses = [];
+  hr_strengths_rich = [];
+  hr_weaknesses_rich = [];
+  hr_interview_probes = [];
+  hr_summary = null;
+}
+
+
+
       // Strengths/Weaknesses
-      const strengthsLLM = Array.isArray(parsed.strengths)
-        ? parsed.strengths.map((s) => String(s).trim()).filter(Boolean)
-        : [];
-      const weaknessesLLM = Array.isArray(parsed.weaknesses)
-        ? parsed.weaknesses.map((s) => String(s).trim()).filter(Boolean)
-        : [];
-
-      const hrDet = buildDeterministicHRInsights({
-        roleFit: roleFitMerged.score,
-        techDepth: techDepthDet.score,
-        delivery: deliveryDet.score,
-        atsPct: scoreKeywordsFromATS(ats) ?? 0,
-        formatting: formattingDet,
-        impact: impactDet,
-        recency: recencyDet,
-        jd,
-        jd_checklist,
-        ats,
-        resumeText,
-        liText,
-        candidateData,
-      });
-
-      let strengths = uniqKeepOrder([...(strengthsLLM || []), ...hrDet.strengths]).slice(0, 5);
-      let weaknesses = uniqKeepOrder([...(weaknessesLLM || []), ...hrDet.weaknesses]).slice(0, 4);
-      if (strengths.length < 3) strengths = hrDet.strengths;
-      if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
-
-      const hr_strengths_rich =
-        (parsed.extended && parsed.extended.hr_strengths_rich) || hrDet.hr_strengths_rich;
-      const hr_weaknesses_rich =
-        (parsed.extended && parsed.extended.hr_weaknesses_rich) || hrDet.hr_weaknesses_rich;
-      const hr_interview_probes =
-        (parsed.extended && parsed.extended.hr_interview_probes) || hrDet.hr_interview_probes;
-      const hr_summary = (parsed.extended && parsed.extended.hr_summary) || hrDet.hr_summary;
+     
 
       // Score breakdown
       const mustIds = new Set((jd.items || []).filter((i) => i.must).map((i) => i.id));
@@ -3817,20 +4069,7 @@ app.post(
               )
               .map((t) => ({ tech: t, years: null }));
           })(),
-          recommended_next_steps: (() => {
-            const steps = [];
-            if (roleFitMerged.mustCoverage < 0.9)
-              steps.push("Address missing MUST-have JD topics with concrete project bullets.");
-            if (deliveryDet.score < 60)
-              steps.push("Document CI/CD, cloud deploys, monitoring stack with tools.");
-            if ((scoreKeywordsFromATS(ats) ?? 0) < 60)
-              steps.push("Blend missing JD keywords naturally into experience bullets.");
-            if (impactDet < 40)
-              steps.push("Add 2–3 quantified outcomes (%, time, cost, throughput).");
-            if (formattingDet < 60)
-              steps.push("Use consistent bullets, sections, and dates for readability.");
-            return steps;
-          })(),
+          recommended_next_steps,
           policy_notes: {
             decision_bands: {
               ">=80": "strong_pass → immediate_hire",

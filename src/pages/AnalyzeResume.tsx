@@ -1215,7 +1215,7 @@ if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
 
                 {/* File input area */}
                 <div
-                  className={`flex flex-col items-center py-12 border-2 ${
+                  className={`flex flex-col items-center px-4 py-12 border-2 ${
                     isDragActive
                       ? "border-blue-400 bg-blue-50"
                       : "border-dashed border-gray-300 bg-gray-50"
@@ -1397,8 +1397,8 @@ if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
                     hint="CI/CD, cloud, agile, ownership"
                   />
                   <HireCard
-                    title="Risk (lower is better)"
-                    value={hire.risk || 0}
+                    title="Risk (higher is better)"
+                    value={100 -(hire.risk || 0)}
                     invert
                     hint="Penalty for must-fail & flags"
                   />
