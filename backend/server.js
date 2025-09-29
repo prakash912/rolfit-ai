@@ -15,7 +15,6 @@ require("dotenv").config();
 const ATS_DETERMINISTIC_ONLY = process.env.ATS_DETERMINISTIC_ONLY !== "false";
 // Default: ATS & JD checklist use RESUME ONLY (LinkedIn is bonus for other scores)
 const ATS_USE_LINKEDIN = process.env.ATS_USE_LINKEDIN === "true"; // default false
-
 // Context guards on ambiguous tags (recommended "guarded"; set "naive" to disable)
 const ATS_CONTEXT_MODE = process.env.ATS_CONTEXT_MODE || "guarded"; // "guarded" | "naive"
 
@@ -25,45 +24,340 @@ function atsBaseText(resumeText, liText) {
   );
 }
 
+// function tagMatch(tag, tokens, rawText, role) {
+//   const norm = String(tag || "")
+//     .toLowerCase()
+//     .trim();
+//   const joinTok = (s) => s.replace(/\s+/g, ""); // for token set lookups
+
+//   // Fast path: exact token or substring
+//   const naiveHit = tokens.has(joinTok(norm)) || rawText.includes(norm);
+
+//   if (ATS_CONTEXT_MODE === "naive") return naiveHit;
+
+//   // --- Context guards for ambiguous HR terms ---
+//   if (role === "hr_recruiter") {
+//     if (norm === "pipeline") {
+//       // require hiring context near "pipeline" (±20 chars)
+//       const ctx =
+//         /\b(?:hiring|talent|recruit(?:er|ment)?|candidate)\b.{0,20}\bpipeline\b|\bpipeline\b.{0,20}\b(?:hiring|talent|recruit(?:er|ment)?|candidate)\b/i;
+//       const devopsNear =
+//         /\b(ci\/?cd|jenkins|github actions|gitlab ci|build|deploy|kubernetes|docker)\b/i;
+//       const hit = ctx.test(rawText);
+//       if (!hit) return false;
+//       // if clearly devops-heavy around "pipeline", discard
+//       return !devopsNear.test(rawText);
+//     }
+//     if (norm === "recruiter") {
+//       // avoid counting generic "recruiters" from LI banners; prefer resume phrases
+//       const rx = /\b(technical|it)?\s*recruiter(s)?\b|\brecruitment\b/i;
+//       return rx.test(rawText);
+//     }
+//     if (norm === "technical hiring" || norm === "tech roles") {
+//       const rx =
+//         /\b(technical|tech)\s+hiring\b|\bhiring\s+(for|of)\s+(tech|engineering|it)\b/i;
+//       return rx.test(rawText);
+//     }
+//   }
+
+//   // default fallback
+//   return naiveHit;
+// }
+function escapeRe(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// whole-phrase match with boundaries (no lookbehind needed)
+function hasWhole(raw, needle) {
+  const safe = escapeRe(needle.trim());
+  // boundaries = non-alnum on both sides (or string edges)
+  const re = new RegExp(`(^|[^A-Za-z0-9])${safe}([^A-Za-z0-9]|$)`, "i");
+  return re.test(raw);
+}
+
+// check if A appears within N chars of any of the context words (B)
+function near(raw, a, ctxWords, N = 32) {
+  const safeA = escapeRe(a.trim());
+  const reA = new RegExp(safeA, "ig");
+  let m;
+  while ((m = reA.exec(raw))) {
+    const start = Math.max(0, m.index - N);
+    const end = Math.min(raw.length, m.index + m[0].length + N);
+    const window = raw.slice(start, end);
+    for (const w of ctxWords) {
+      const reW = new RegExp(`\\b${escapeRe(w)}\\b`, "i");
+      if (reW.test(window)) return true;
+    }
+  }
+  return false;
+}
+
 function tagMatch(tag, tokens, rawText, role) {
-  const norm = String(tag || "")
-    .toLowerCase()
-    .trim();
-  const joinTok = (s) => s.replace(/\s+/g, ""); // for token set lookups
+  const norm = String(tag || "").toLowerCase().trim();
+  const joinTok = (s) => s.replace(/\s+/g, "");
 
-  // Fast path: exact token or substring
-  const naiveHit = tokens.has(joinTok(norm)) || rawText.includes(norm);
+  // strict word/phrase hit (no substring cheating)
+  const tokenHit = tokens.has(joinTok(norm)) || tokens.has(norm);
+  const phraseHit = hasWhole(rawText, norm);
+  let hit = tokenHit || phraseHit;
 
-  if (ATS_CONTEXT_MODE === "naive") return naiveHit;
+  if (ATS_CONTEXT_MODE === "naive") return hit;
 
-  // --- Context guards for ambiguous HR terms ---
+  // ---------- Global guard: brand/tool names must be whole words ----------
+  // Fixes: "lever" vs "leveraged", "git" vs "digital"
+  if (["lever", "greenhouse", "zoho", "git"].includes(norm)) {
+    return hasWhole(rawText, norm); // no tokens / no substring
+  }
+
+  // ---------- HR-only guards (reduce false positives from dev resumes) ----------
   if (role === "hr_recruiter") {
+    // already guarded in your code: pipeline. Keep but rewrite to near().
     if (norm === "pipeline") {
-      // require hiring context near "pipeline" (±20 chars)
-      const ctx =
-        /\b(?:hiring|talent|recruit(?:er|ment)?|candidate)\b.{0,20}\bpipeline\b|\bpipeline\b.{0,20}\b(?:hiring|talent|recruit(?:er|ment)?|candidate)\b/i;
-      const devopsNear =
-        /\b(ci\/?cd|jenkins|github actions|gitlab ci|build|deploy|kubernetes|docker)\b/i;
-      const hit = ctx.test(rawText);
-      if (!hit) return false;
-      // if clearly devops-heavy around "pipeline", discard
-      return !devopsNear.test(rawText);
+      const hrNear = ["hiring", "talent", "recruiter", "recruitment", "candidate"];
+      const devopsNear = ["ci/cd", "jenkins", "github actions", "gitlab ci", "build", "deploy", "kubernetes", "docker"];
+      const hrCtx = near(rawText, "pipeline", hrNear, 24);
+      const devopsCtx = devopsNear.some(t => near(rawText, "pipeline", [t], 28));
+      return hit && hrCtx && !devopsCtx;
     }
+
+    // super ambiguous: appears a lot in dev resumes ("end-to-end testing")
+    if (norm === "end-to-end") {
+      const hrCtx = ["recruitment", "hiring", "candidate", "screening", "offer", "negotiation", "shortlist"];
+      const devCtx = ["testing", "qa", "e2e", "service", "feature", "system"];
+      return hit && near(rawText, "end-to-end", hrCtx, 28) && !near(rawText, "end-to-end", devCtx, 28);
+    }
+
+    if (norm === "screening") {
+      const mustNear = ["candidate", "resume", "cv", "profile", "phone", "interview", "sourcing"];
+      return hit && near(rawText, "screening", mustNear, 28);
+    }
+
+    if (norm === "offer" || norm === "negotiation") {
+      const mustNear = ["candidate", "salary", "comp", "compensation", "ctc", "accept", "close", "rollout"];
+      return hit && (hasWhole(rawText, norm) || near(rawText, norm, mustNear, 28));
+    }
+
     if (norm === "recruiter") {
-      // avoid counting generic "recruiters" from LI banners; prefer resume phrases
-      const rx = /\b(technical|it)?\s*recruiter(s)?\b|\brecruitment\b/i;
-      return rx.test(rawText);
+      // prefer explicit recruiter phrasing
+      return /\b(technical|it)?\s*recruiter(s)?\b|\brecruitment\b/i.test(rawText);
     }
+
     if (norm === "technical hiring" || norm === "tech roles") {
-      const rx =
-        /\b(technical|tech)\s+hiring\b|\bhiring\s+(for|of)\s+(tech|engineering|it)\b/i;
-      return rx.test(rawText);
+      return /\b(technical|tech)\s+hiring\b|\bhiring\s+(for|of)\s+(tech|engineering|it)\b/i.test(rawText);
     }
   }
 
-  // default fallback
-  return naiveHit;
+  // default: return the strict hit
+  return hit;
 }
+
+// function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
+//   const raw = String(candidateText || "").toLowerCase();
+//   const detMap = new Map(detChecklist.map(r => [r.id, r]));
+//   const LVL_ORDER = { Weak: 0, Medium: 1, Strong: 2 };
+//   const LVL_BY_IDX = ["Weak","Medium","Strong"];
+
+//   return (jd_checklist || []).map(row => {
+//     const det = detMap.get(row.id);
+//     // Start from LLM row, but clamp to deterministic
+//     let status = det ? det.status : row.status;
+//     let level  = det ? det.level  : row.level;
+
+//     // If deterministic Fail, force Fail+Weak
+//     if (det && det.status === "Fail") {
+//       status = "Fail";
+//       level  = "Weak";
+//     } else if (det && det.status === "Pass") {
+//       // If deterministic Pass, allow only same-or-lower level than deterministic
+//       const detIdx = LVL_ORDER[det.level] ?? 0;
+//       const llmIdx = LVL_ORDER[row.level] ?? detIdx;
+//       level = LVL_BY_IDX[Math.min(detIdx, llmIdx)];
+//     }
+
+//     // Evidence must be literal substring of candidate text
+//     const evidence_spans = (row.evidence_spans || []).filter(
+//       s => s && s.text && raw.includes(String(s.text).toLowerCase())
+//     ).slice(0, 3);
+
+//     // Extra guard for HR items to prevent dev “end-to-end/pipeline” collisions
+//     if (role === "hr_recruiter" && status === "Pass" &&
+//         (row.id === "full_cycle" || row.id === "it_recruitment_experience")) {
+//       const hrSignal = /\b(recruit(ment|er)|candidate|screen(ing)?|shortlist|offer|negotiat(e|ion)|sourcing)\b/i.test(raw);
+//       if (!hrSignal) { status = "Fail"; level = "Weak"; }
+//     }
+
+//     return { ...row, status, level, evidence_spans };
+//   });
+// }
+
+// function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
+//   const raw = String(candidateText || "").toLowerCase();
+//   const detMap = new Map(detChecklist.map(r => [r.id, r]));
+//   const LVL_ORDER = { Weak: 0, Medium: 1, Strong: 2 };
+//   const LVL_BY_IDX = ["Weak","Medium","Strong"];
+
+//   // “Looks like role” anchors (lightweight)
+//   const ROLE_ANCHORS = {
+//     hr_recruiter: /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
+//     software_engineer: /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
+//     qa_engineer: /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
+//     project_manager: /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
+//     business_analyst: /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
+//     tech_lead: /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
+//     drupal_developer: /\b(drupal|twig|drush|module|hook_|paragraphs)\b/i,
+//   };
+//   const looksLikeRole = ROLE_ANCHORS[role] ? ROLE_ANCHORS[role].test(raw) : true;
+
+//   // HR false-positive collision from DevOps “pipeline”
+//   const DEVOPS_NEAR = /\b(ci\/?cd|jenkins|github actions?|gitlab ci|build|deploy|docker|kubernetes)\b/i;
+
+//   return (jd_checklist || []).map(row => {
+//     const det = detMap.get(row.id);
+
+//     // Start from deterministic baseline
+//     let status = det ? det.status : row.status;
+//     let level  = det ? det.level  : row.level;
+
+//     if (det && det.status === "Fail") {
+//       // keep Fail (LLM can't upgrade)
+//       status = "Fail";
+//       level  = "Weak";
+//     } else if (det && det.status === "Pass") {
+//       // NEVER worse than deterministic: lock to deterministic level
+//       status = "Pass";
+//       level  = det.level;
+//     } else {
+//       // no deterministic row; clamp LLM level to valid range
+//       const llmIdx = LVL_ORDER[row.level] ?? 0;
+//       level = LVL_BY_IDX[Math.max(0, Math.min(2, llmIdx))];
+//     }
+
+//     // keep only literal evidence from candidate text
+//     const evidence_spans = (row.evidence_spans || [])
+//       .filter(s => s && s.text && raw.includes(String(s.text).toLowerCase()))
+//       .slice(0, 3);
+//     const hasEvidence = evidence_spans.length > 0;
+
+//     // Cross-role guard: apply **only when deterministic was Fail or missing**
+//     if ((!det || det.status === "Fail") && status === "Pass" && !looksLikeRole && !hasEvidence) {
+//       status = "Fail";
+//       level  = "Weak";
+//     }
+
+//     // Extra HR guard (only when deterministic was Fail or missing)
+//     if (role === "hr_recruiter" && (!det || det.status === "Fail") && status === "Pass" &&
+//        (row.id === "full_cycle" || row.id === "it_recruitment_experience" ||
+//         row.id === "sourcing_platforms" || row.id === "ats_tools")) {
+
+//       const hasHR = ROLE_ANCHORS.hr_recruiter.test(raw);
+//       const devopsCollision =
+//         /\b(pipeline|end-?to-?end|ownership)\b/i.test(raw) && DEVOPS_NEAR.test(raw);
+
+//       if (!hasHR || devopsCollision) {
+//         status = "Fail";
+//         level  = "Weak";
+//       }
+//     }
+
+//     return { ...row, status, level, evidence_spans };
+//   });
+// }
+
+function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
+  const raw = String(candidateText || "").toLowerCase();
+  const rawNorm = raw.replace(/\s+/g, " ").trim();
+
+  const detMap = new Map(detChecklist.map(r => [r.id, r]));
+  const LVL_ORDER = { Weak: 0, Medium: 1, Strong: 2 };
+  const LVL_BY_IDX = ["Weak","Medium","Strong"];
+
+  // Light role anchors (soft gating)
+  const ROLE_ANCHORS = {
+    hr_recruiter: /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
+    software_engineer: /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
+    qa_engineer: /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
+    project_manager: /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
+    business_analyst: /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
+    tech_lead: /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
+    drupal_developer: /\b(drupal|twig|drush|module|hook_|paragraphs)\b/i,
+  };
+  const looksLikeRole = ROLE_ANCHORS[role] ? ROLE_ANCHORS[role].test(raw) : true;
+
+  // HR false-positive collision from DevOps “pipeline”
+  const DEVOPS_NEAR = /\b(ci\/?cd|jenkins|github actions?|gitlab ci|build|deploy|docker|kubernetes)\b/i;
+
+  const stripSemanticPrefix = (s) =>
+    String(s || "").replace(/^\s*\[semantic[^\]]*\]\s*/i, "");
+  const norm = (s) => stripSemanticPrefix(s).toLowerCase().replace(/\s+/g, " ").trim();
+
+  return (jd_checklist || []).map(row => {
+    const det = detMap.get(row.id);
+
+    // Start from deterministic baseline
+    let status = det ? det.status : row.status;
+    let level  = det ? det.level  : row.level;
+
+    if (det && det.status === "Fail") {
+      // Default: keep Fail baseline…
+      status = "Fail"; level = "Weak";
+    } else if (det && det.status === "Pass") {
+      // Never worse than deterministic
+      status = "Pass"; level = det.level;
+    } else {
+      // No deterministic row; make LLM level sane
+      const llmIdx = LVL_ORDER[row.level] ?? 0;
+      level = LVL_BY_IDX[Math.max(0, Math.min(2, llmIdx))];
+    }
+
+    // Keep evidence only if it literally appears (after stripping [semantic …])
+    const evidence_spans = (row.evidence_spans || [])
+      .filter(s => {
+        const t = norm(s.text);
+        return t && rawNorm.includes(t);
+      })
+      .slice(0, 3);
+
+    const hasEvidence = evidence_spans.length > 0;
+
+    // If deterministic said Fail but LLM said Pass, be lenient:
+    // upgrade to Pass/Weak if we have either evidence OR the resume roughly matches the role.
+    if (det && det.status === "Fail" && row.status === "Pass") {
+      status = (hasEvidence || looksLikeRole) ? "Pass" : "Fail";
+      level  = (status === "Pass") ? "Weak" : "Weak"; // Weak either way; only Pass changes scoring
+    }
+
+    // Cross-role guard: ONLY soften to Weak, never force Fail
+    if ((!det || det.status === "Fail") && status === "Pass" && !looksLikeRole && !hasEvidence) {
+      status = "Pass"; level = "Weak";
+    }
+
+    // Extra HR guard (hard block only on devops collision)
+    if (role === "hr_recruiter" && (!det || det.status === "Fail") && status === "Pass" &&
+       (row.id === "full_cycle" || row.id === "it_recruitment_experience" ||
+        row.id === "sourcing_platforms" || row.id === "ats_tools")) {
+
+      const hasHR = ROLE_ANCHORS.hr_recruiter.test(raw);
+      const devopsCollision =
+        /\b(pipeline|end-?to-?end|ownership)\b/i.test(raw) && DEVOPS_NEAR.test(raw);
+
+      if (!hasHR && devopsCollision) {
+        // Only in this very specific false-positive case, flip to Fail.
+        status = "Fail"; level = "Weak";
+      } else if (!hasEvidence) {
+        // Otherwise, keep it but cap to Weak.
+        status = "Pass"; level = "Weak";
+      }
+    }
+
+    return { ...row, status, level, evidence_spans };
+  });
+}
+
+
+
+
+
+
 
 const app = express();
 const upload = multer({
@@ -1160,7 +1454,8 @@ function deterministicJDChecklist(candidateText, jd, role) {
 }
 
 /* ---------------------- Hireability scoring (cards) ----------------------- */
-const LVL = { Strong: 1.0, Medium: 0.75, Weak: 0.4 };
+// const LVL = { Strong: 1.0, Medium: 0.75, Weak: 0.4 };
+const LVL = { Strong: 1.0, Medium: 0.80, Weak: 0.60 };
 
 function scoreRoleFit(jdChecklist = [], jdWeights = {}, jdItems = []) {
   if (!Array.isArray(jdChecklist) || jdChecklist.length === 0)
@@ -1835,6 +2130,9 @@ app.post("/api/analyze", upload.single("resume"), async (req, res) => {
       });
     }
 
+    jd_checklist = sanitizeChecklist(jd_checklist, detChecklist, resumeText || liText, role);
+
+
     // 10) Recompute role-fit on merged checklist
     const roleFitMerged = scoreRoleFit(
       jd_checklist,
@@ -1843,10 +2141,15 @@ app.post("/api/analyze", upload.single("resume"), async (req, res) => {
     );
 
     // 11) Deterministic overall (primary)
-    const mustPenalty =
-      roleFitMerged.mustCoverage < 0.8
-        ? (0.8 - roleFitMerged.mustCoverage) * 30
-        : 0;
+    // const mustPenalty =
+    //   roleFitMerged.mustCoverage < 0.8
+    //     ? (0.8 - roleFitMerged.mustCoverage) * 30
+    //     : 0;
+    // AFTER (quadratic, smaller max, starts only below 0.7 coverage)
+const MUST_PENALTY_MAX = Number(process.env.MUST_PENALTY_MAX || 12); // pts
+const MUST_PENALTY_THR = Number(process.env.MUST_PENALTY_THR || 0.70); // coverage
+const deficit = Math.max(0, MUST_PENALTY_THR - roleFitMerged.mustCoverage);
+const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit); // gentle near threshold
     const baseOverall =
       0.58 * (roleFitMerged.score / 100) + // JD alignment slightly higher
       0.14 * (techDepthDet.score / 100) +
@@ -1878,12 +2181,18 @@ app.post("/api/analyze", upload.single("resume"), async (req, res) => {
     );
 
     // 13) Score bands / policy mapping
+    // const bandFromScore = (overall, roleFitScore) => {
+    //   if (overall >= 80) return "strong_pass";
+    //   if (overall >= 60) return "normal_pass";
+    //   if (overall >= 50 || roleFitScore >= 60) return "low_pass"; // JD>=60 => at least low pass
+    //   return "fail";
+    // };
     const bandFromScore = (overall, roleFitScore) => {
-      if (overall >= 80) return "strong_pass";
-      if (overall >= 60) return "normal_pass";
-      if (overall >= 50 || roleFitScore >= 60) return "low_pass"; // JD>=60 => at least low pass
-      return "fail";
-    };
+  if (overall >= 78) return "strong_pass";
+  if (overall >= 58) return "normal_pass";
+  if (overall >= 48 || roleFitScore >= 60) return "low_pass";
+  return "fail";
+};
     const band = bandFromScore(overallBlended, roleFitMerged.score);
     const actionMap = {
       strong_pass: "immediate_hire",
