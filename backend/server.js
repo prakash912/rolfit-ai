@@ -93,7 +93,9 @@ function near(raw, a, ctxWords, N = 32) {
 }
 
 function tagMatch(tag, tokens, rawText, role) {
-  const norm = String(tag || "").toLowerCase().trim();
+  const norm = String(tag || "")
+    .toLowerCase()
+    .trim();
   const joinTok = (s) => s.replace(/\s+/g, "");
 
   // strict word/phrase hit (no substring cheating)
@@ -113,37 +115,89 @@ function tagMatch(tag, tokens, rawText, role) {
   if (role === "hr_recruiter") {
     // already guarded in your code: pipeline. Keep but rewrite to near().
     if (norm === "pipeline") {
-      const hrNear = ["hiring", "talent", "recruiter", "recruitment", "candidate"];
-      const devopsNear = ["ci/cd", "jenkins", "github actions", "gitlab ci", "build", "deploy", "kubernetes", "docker"];
+      const hrNear = [
+        "hiring",
+        "talent",
+        "recruiter",
+        "recruitment",
+        "candidate",
+      ];
+      const devopsNear = [
+        "ci/cd",
+        "jenkins",
+        "github actions",
+        "gitlab ci",
+        "build",
+        "deploy",
+        "kubernetes",
+        "docker",
+      ];
       const hrCtx = near(rawText, "pipeline", hrNear, 24);
-      const devopsCtx = devopsNear.some(t => near(rawText, "pipeline", [t], 28));
+      const devopsCtx = devopsNear.some((t) =>
+        near(rawText, "pipeline", [t], 28)
+      );
       return hit && hrCtx && !devopsCtx;
     }
 
     // super ambiguous: appears a lot in dev resumes ("end-to-end testing")
     if (norm === "end-to-end") {
-      const hrCtx = ["recruitment", "hiring", "candidate", "screening", "offer", "negotiation", "shortlist"];
+      const hrCtx = [
+        "recruitment",
+        "hiring",
+        "candidate",
+        "screening",
+        "offer",
+        "negotiation",
+        "shortlist",
+      ];
       const devCtx = ["testing", "qa", "e2e", "service", "feature", "system"];
-      return hit && near(rawText, "end-to-end", hrCtx, 28) && !near(rawText, "end-to-end", devCtx, 28);
+      return (
+        hit &&
+        near(rawText, "end-to-end", hrCtx, 28) &&
+        !near(rawText, "end-to-end", devCtx, 28)
+      );
     }
 
     if (norm === "screening") {
-      const mustNear = ["candidate", "resume", "cv", "profile", "phone", "interview", "sourcing"];
+      const mustNear = [
+        "candidate",
+        "resume",
+        "cv",
+        "profile",
+        "phone",
+        "interview",
+        "sourcing",
+      ];
       return hit && near(rawText, "screening", mustNear, 28);
     }
 
     if (norm === "offer" || norm === "negotiation") {
-      const mustNear = ["candidate", "salary", "comp", "compensation", "ctc", "accept", "close", "rollout"];
-      return hit && (hasWhole(rawText, norm) || near(rawText, norm, mustNear, 28));
+      const mustNear = [
+        "candidate",
+        "salary",
+        "comp",
+        "compensation",
+        "ctc",
+        "accept",
+        "close",
+        "rollout",
+      ];
+      return (
+        hit && (hasWhole(rawText, norm) || near(rawText, norm, mustNear, 28))
+      );
     }
 
     if (norm === "recruiter") {
       // prefer explicit recruiter phrasing
-      return /\b(technical|it)?\s*recruiter(s)?\b|\brecruitment\b/i.test(rawText);
+      return /\b(technical|it)?\s*recruiter(s)?\b|\brecruitment\b/i.test(
+        rawText
+      );
     }
 
     if (norm === "technical hiring" || norm === "tech roles") {
-      return /\b(technical|tech)\s+hiring\b|\bhiring\s+(for|of)\s+(tech|engineering|it)\b/i.test(rawText);
+      return /\b(technical|tech)\s+hiring\b|\bhiring\s+(for|of)\s+(tech|engineering|it)\b/i.test(
+        rawText
+      );
     }
   }
 
@@ -267,42 +321,77 @@ function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
   const raw = String(candidateText || "").toLowerCase();
   const rawNorm = raw.replace(/\s+/g, " ").trim();
 
-  const detMap = new Map(detChecklist.map(r => [r.id, r]));
+  const detMap = new Map(detChecklist.map((r) => [r.id, r]));
   const LVL_ORDER = { Weak: 0, Medium: 1, Strong: 2 };
-  const LVL_BY_IDX = ["Weak","Medium","Strong"];
+  const LVL_BY_IDX = ["Weak", "Medium", "Strong"];
 
   // Light role anchors (soft gating)
+  // const ROLE_ANCHORS = {
+  //   hr_recruiter: /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
+  //   software_engineer: /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
+  //   qa_engineer: /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
+  //   project_manager: /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
+  //   business_analyst: /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
+  //   tech_lead: /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
+  //   drupal_developer: /\b(drupal|twig|drush|module|hook_|paragraphs)\b/i,
+  // };
+
   const ROLE_ANCHORS = {
-    hr_recruiter: /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
-    software_engineer: /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
-    qa_engineer: /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
-    project_manager: /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
-    business_analyst: /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
-    tech_lead: /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
+    hr_recruiter:
+      /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
+    software_engineer:
+      /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
+    qa_engineer:
+      /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
+    project_manager:
+      /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
+    business_analyst:
+      /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
+    tech_lead:
+      /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
     drupal_developer: /\b(drupal|twig|drush|module|hook_|paragraphs)\b/i,
+
+    // NEW:
+    frontend_engineer_react:
+      /\b(react|hooks|redux|zustand|next(?:js)?|vite|webpack|typescript|jest|testing library|cypress|playwright|mui|tailwind)\b/i,
+    frontend_engineer_vue_nuxt:
+      /\b(vue(?:3)?|composition api|pinia|vuex|nuxt(?:3)?|vite|typescript|jest|vitest|cypress|playwright|vuetify|quasar|tailwind)\b/i,
+    backend_engineer_node:
+      /\b(node(?:js)?|express|nest|api|rest|graphql|postgres|mysql|mongodb|prisma|jwt|oauth|redis|kafka)\b/i,
+    backend_engineer_python:
+      /\b(python|django|fastapi|flask|pydantic|api|postgres|mysql|mongodb|sqlalchemy|jwt|oauth|celery|asyncio)\b/i,
+    aws_devops_engineer:
+      /\b(aws|ec2|s3|iam|vpc|rds|lambda|cloudfront|api gateway|terraform|cloudformation|cdk|docker|kubernetes|eks|ecr|jenkins|github actions|gitlab ci|cloudwatch|grafana|prometheus)\b/i,
   };
-  const looksLikeRole = ROLE_ANCHORS[role] ? ROLE_ANCHORS[role].test(raw) : true;
+
+  const looksLikeRole = ROLE_ANCHORS[role]
+    ? ROLE_ANCHORS[role].test(raw)
+    : true;
 
   // HR false-positive collision from DevOps “pipeline”
-  const DEVOPS_NEAR = /\b(ci\/?cd|jenkins|github actions?|gitlab ci|build|deploy|docker|kubernetes)\b/i;
+  const DEVOPS_NEAR =
+    /\b(ci\/?cd|jenkins|github actions?|gitlab ci|build|deploy|docker|kubernetes)\b/i;
 
   const stripSemanticPrefix = (s) =>
     String(s || "").replace(/^\s*\[semantic[^\]]*\]\s*/i, "");
-  const norm = (s) => stripSemanticPrefix(s).toLowerCase().replace(/\s+/g, " ").trim();
+  const norm = (s) =>
+    stripSemanticPrefix(s).toLowerCase().replace(/\s+/g, " ").trim();
 
-  return (jd_checklist || []).map(row => {
+  return (jd_checklist || []).map((row) => {
     const det = detMap.get(row.id);
 
     // Start from deterministic baseline
     let status = det ? det.status : row.status;
-    let level  = det ? det.level  : row.level;
+    let level = det ? det.level : row.level;
 
     if (det && det.status === "Fail") {
       // Default: keep Fail baseline…
-      status = "Fail"; level = "Weak";
+      status = "Fail";
+      level = "Weak";
     } else if (det && det.status === "Pass") {
       // Never worse than deterministic
-      status = "Pass"; level = det.level;
+      status = "Pass";
+      level = det.level;
     } else {
       // No deterministic row; make LLM level sane
       const llmIdx = LVL_ORDER[row.level] ?? 0;
@@ -311,7 +400,7 @@ function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
 
     // Keep evidence only if it literally appears (after stripping [semantic …])
     const evidence_spans = (row.evidence_spans || [])
-      .filter(s => {
+      .filter((s) => {
         const t = norm(s.text);
         return t && rawNorm.includes(t);
       })
@@ -322,42 +411,50 @@ function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
     // If deterministic said Fail but LLM said Pass, be lenient:
     // upgrade to Pass/Weak if we have either evidence OR the resume roughly matches the role.
     if (det && det.status === "Fail" && row.status === "Pass") {
-      status = (hasEvidence || looksLikeRole) ? "Pass" : "Fail";
-      level  = (status === "Pass") ? "Weak" : "Weak"; // Weak either way; only Pass changes scoring
+      status = hasEvidence || looksLikeRole ? "Pass" : "Fail";
+      level = status === "Pass" ? "Weak" : "Weak"; // Weak either way; only Pass changes scoring
     }
 
     // Cross-role guard: ONLY soften to Weak, never force Fail
-    if ((!det || det.status === "Fail") && status === "Pass" && !looksLikeRole && !hasEvidence) {
-      status = "Pass"; level = "Weak";
+    if (
+      (!det || det.status === "Fail") &&
+      status === "Pass" &&
+      !looksLikeRole &&
+      !hasEvidence
+    ) {
+      status = "Pass";
+      level = "Weak";
     }
 
     // Extra HR guard (hard block only on devops collision)
-    if (role === "hr_recruiter" && (!det || det.status === "Fail") && status === "Pass" &&
-       (row.id === "full_cycle" || row.id === "it_recruitment_experience" ||
-        row.id === "sourcing_platforms" || row.id === "ats_tools")) {
-
+    if (
+      role === "hr_recruiter" &&
+      (!det || det.status === "Fail") &&
+      status === "Pass" &&
+      (row.id === "full_cycle" ||
+        row.id === "it_recruitment_experience" ||
+        row.id === "sourcing_platforms" ||
+        row.id === "ats_tools")
+    ) {
       const hasHR = ROLE_ANCHORS.hr_recruiter.test(raw);
       const devopsCollision =
-        /\b(pipeline|end-?to-?end|ownership)\b/i.test(raw) && DEVOPS_NEAR.test(raw);
+        /\b(pipeline|end-?to-?end|ownership)\b/i.test(raw) &&
+        DEVOPS_NEAR.test(raw);
 
       if (!hasHR && devopsCollision) {
         // Only in this very specific false-positive case, flip to Fail.
-        status = "Fail"; level = "Weak";
+        status = "Fail";
+        level = "Weak";
       } else if (!hasEvidence) {
         // Otherwise, keep it but cap to Weak.
-        status = "Pass"; level = "Weak";
+        status = "Pass";
+        level = "Weak";
       }
     }
 
     return { ...row, status, level, evidence_spans };
   });
 }
-
-
-
-
-
-
 
 const app = express();
 const upload = multer({
@@ -377,11 +474,20 @@ const yearNow = new Date().getFullYear();
 
 // ---------- HR insights helpers ----------
 function uniqKeepOrder(arr) {
-  const seen = new Set(); const out = [];
-  for (const x of (arr || [])) { const k = String(x).trim(); if (k && !seen.has(k)) { seen.add(k); out.push(k); } }
+  const seen = new Set();
+  const out = [];
+  for (const x of arr || []) {
+    const k = String(x).trim();
+    if (k && !seen.has(k)) {
+      seen.add(k);
+      out.push(k);
+    }
+  }
   return out;
 }
-function clampList(arr, n) { return (arr || []).slice(0, n); }
+function clampList(arr, n) {
+  return (arr || []).slice(0, n);
+}
 
 function findSnippet(text, patterns) {
   const t = String(text || "");
@@ -400,98 +506,197 @@ function findSnippet(text, patterns) {
 function deriveTopTechs(candidateData) {
   const t = (candidateData || "").toLowerCase();
   const techList = [
-    "react","next","vue","node","express","nest","typescript","javascript",
-    "postgres","mysql","mongodb","redis",
-    "aws","ec2","s3","lambda","cloudfront","api gateway","docker","kubernetes",
-    "cypress","playwright","selenium","jest","mocha","graphql","rest"
+    "react",
+    "next",
+    "vue",
+    "node",
+    "express",
+    "nest",
+    "typescript",
+    "javascript",
+    "postgres",
+    "mysql",
+    "mongodb",
+    "redis",
+    "aws",
+    "ec2",
+    "s3",
+    "lambda",
+    "cloudfront",
+    "api gateway",
+    "docker",
+    "kubernetes",
+    "cypress",
+    "playwright",
+    "selenium",
+    "jest",
+    "mocha",
+    "graphql",
+    "rest",
   ];
-  const hits = techList.filter(k => t.includes(k)).slice(0, 6);
-  return hits.map(s => s.toUpperCase() === "REST" ? "REST" : s.replace(/\b\w/g, c => c.toUpperCase()));
+  const hits = techList.filter((k) => t.includes(k)).slice(0, 6);
+  return hits.map((s) =>
+    s.toUpperCase() === "REST"
+      ? "REST"
+      : s.replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }
 
 function buildDeterministicHRInsights({
-  roleFit, techDepth, delivery, atsPct, formatting, impact, recency,
-  jd, jdChecklist, ats, resumeText, liText, candidateData,
+  roleFit,
+  techDepth,
+  delivery,
+  atsPct,
+  formatting,
+  impact,
+  recency,
+  jd,
+  jdChecklist,
+  ats,
+  resumeText,
+  liText,
+  candidateData,
 }) {
   const strengths = [];
   const weaknesses = [];
 
-  const resumeOrLI = (resumeText && resumeText.length > 50) ? resumeText : liText || "";
+  const resumeOrLI =
+    resumeText && resumeText.length > 50 ? resumeText : liText || "";
   const topTechs = deriveTopTechs(candidateData).join(", ");
 
   // Strength: JD alignment
   if (roleFit >= 70) {
-    const snip = findSnippet(resumeOrLI, [/project|experience|role|responsib/i]);
-    strengths.push(`JD Alignment — Impact: Ready to contribute with ${roleFit}% weighted JD fit. Evidence: "${snip || "Relevant project bullets present"}". Probe: Which JD must-haves are you strongest in and why?`);
+    const snip = findSnippet(resumeOrLI, [
+      /project|experience|role|responsib/i,
+    ]);
+    strengths.push(
+      `JD Alignment — Impact: Ready to contribute with ${roleFit}% weighted JD fit. Evidence: "${
+        snip || "Relevant project bullets present"
+      }". Probe: Which JD must-haves are you strongest in and why?`
+    );
   }
 
   // Strength: Technical depth
   if (techDepth >= 65) {
-    const snip = findSnippet(resumeOrLI, [/react|node|typescript|postgres|mongodb|aws|docker|kubernetes/i]);
-    strengths.push(`Technical Depth — Impact: Solid hands-on across ${topTechs || "core stack"}. Evidence: "${snip || "Stack listed in recent roles"}". Probe: Walk me through one deep technical decision and alternatives you rejected.`);
+    const snip = findSnippet(resumeOrLI, [
+      /react|node|typescript|postgres|mongodb|aws|docker|kubernetes/i,
+    ]);
+    strengths.push(
+      `Technical Depth — Impact: Solid hands-on across ${
+        topTechs || "core stack"
+      }. Evidence: "${
+        snip || "Stack listed in recent roles"
+      }". Probe: Walk me through one deep technical decision and alternatives you rejected.`
+    );
   }
 
   // Strength: Delivery/DevOps
   if (delivery >= 60) {
-    const snip = findSnippet(resumeOrLI, [/ci\/?cd|jenkins|github actions|gitlab ci|docker|kubernetes|deploy/i]);
-    strengths.push(`Delivery & DevOps — Impact: Demonstrated CI/CD and deployment ownership. Evidence: "${snip || "CI/CD and releases noted"}". Probe: Describe your pipeline, tests, and rollback strategy on a recent release.`);
+    const snip = findSnippet(resumeOrLI, [
+      /ci\/?cd|jenkins|github actions|gitlab ci|docker|kubernetes|deploy/i,
+    ]);
+    strengths.push(
+      `Delivery & DevOps — Impact: Demonstrated CI/CD and deployment ownership. Evidence: "${
+        snip || "CI/CD and releases noted"
+      }". Probe: Describe your pipeline, tests, and rollback strategy on a recent release.`
+    );
   }
 
   // Strength: Impact orientation
   if (impact >= 40) {
-    const snip = findSnippet(resumeOrLI, [/\b\d+%|\b\d+x|\b\d+ms|\b(\$|₹)[\d,]+/i]);
-    strengths.push(`Outcome Focus — Impact: Uses metrics to prove results. Evidence: "${snip || "Quantified results mentioned"}". Probe: Pick one metric you moved—how did you isolate your contribution?`);
+    const snip = findSnippet(resumeOrLI, [
+      /\b\d+%|\b\d+x|\b\d+ms|\b(\$|₹)[\d,]+/i,
+    ]);
+    strengths.push(
+      `Outcome Focus — Impact: Uses metrics to prove results. Evidence: "${
+        snip || "Quantified results mentioned"
+      }". Probe: Pick one metric you moved—how did you isolate your contribution?`
+    );
   }
 
   // Strength: Recency
   if (recency >= 80) {
     const snip = findSnippet(resumeOrLI, [/2024|2025|2023/i]);
-    strengths.push(`Recent Hands-on — Impact: Up-to-date skills (recency ${recency}%). Evidence: "${snip || "Recent years visible"}". Probe: What’s the newest tool or pattern you adopted and why?`);
+    strengths.push(
+      `Recent Hands-on — Impact: Up-to-date skills (recency ${recency}%). Evidence: "${
+        snip || "Recent years visible"
+      }". Probe: What’s the newest tool or pattern you adopted and why?`
+    );
   }
 
   // Transferable/communication (if tokens show)
-  if (/\b(stakeholder|client|presentation|mentored|lead|led|owned)\b/i.test(candidateData)) {
-    const snip = findSnippet(resumeOrLI, [/stakeholder|client|presentation|mentored|led|owned/i]);
-    strengths.push(`Collaboration/Ownership — Impact: Communicates and drives work across teams. Evidence: "${snip || "Collaboration verbs present"}". Probe: Describe a conflict you resolved between engineering and product.`);
+  if (
+    /\b(stakeholder|client|presentation|mentored|lead|led|owned)\b/i.test(
+      candidateData
+    )
+  ) {
+    const snip = findSnippet(resumeOrLI, [
+      /stakeholder|client|presentation|mentored|led|owned/i,
+    ]);
+    strengths.push(
+      `Collaboration/Ownership — Impact: Communicates and drives work across teams. Evidence: "${
+        snip || "Collaboration verbs present"
+      }". Probe: Describe a conflict you resolved between engineering and product.`
+    );
   }
 
   // Weakness: Missing MUST items
-  const mustSet = new Set((jd.items || []).filter(i => i.must).map(i => i.id));
-  const mustFails = (jdChecklist || []).filter(r => r.status !== "Pass" && mustSet.has(r.id));
+  const mustSet = new Set(
+    (jd.items || []).filter((i) => i.must).map((i) => i.id)
+  );
+  const mustFails = (jdChecklist || []).filter(
+    (r) => r.status !== "Pass" && mustSet.has(r.id)
+  );
   if (mustFails.length) {
-    const areas = mustFails.map(r => r.id).join(", ");
-    weaknesses.push(`Must-Haves Gap — Risk: High. Evidence: "Fails: ${areas}". Mitigation: Complete a small project covering the missing MUST areas and add quantified results. Probe: Which MUST are you addressing first and how?`);
+    const areas = mustFails.map((r) => r.id).join(", ");
+    weaknesses.push(
+      `Must-Haves Gap — Risk: High. Evidence: "Fails: ${areas}". Mitigation: Complete a small project covering the missing MUST areas and add quantified results. Probe: Which MUST are you addressing first and how?`
+    );
   }
 
   // Weakness: ATS gaps
   const missingTags = (ats?.missing || []).slice(0, 6);
   if (missingTags.length) {
-    weaknesses.push(`Keyword Coverage — Risk: Medium. Evidence: "Missing: ${missingTags.join(", ")}". Mitigation: Blend missing tags into truthful bullets (tools, versions, scope). Probe: Where have you used or can you demo these quickly?`);
+    weaknesses.push(
+      `Keyword Coverage — Risk: Medium. Evidence: "Missing: ${missingTags.join(
+        ", "
+      )}". Mitigation: Blend missing tags into truthful bullets (tools, versions, scope). Probe: Where have you used or can you demo these quickly?`
+    );
   }
 
   // Weakness: Delivery low
   if (delivery < 60) {
-    weaknesses.push(`Delivery/DevOps Depth — Risk: Medium. Evidence: "CI/CD or release details limited". Mitigation: Document pipeline, test strategy, monitoring; ship a demo with pipeline yaml. Probe: How do you gate releases and monitor post-deploy?`);
+    weaknesses.push(
+      `Delivery/DevOps Depth — Risk: Medium. Evidence: "CI/CD or release details limited". Mitigation: Document pipeline, test strategy, monitoring; ship a demo with pipeline yaml. Probe: How do you gate releases and monitor post-deploy?`
+    );
   }
 
   // Weakness: Impact evidence low
   if (impact < 40) {
-    weaknesses.push(`Quantified Impact — Risk: Medium. Evidence: "Few metrics on outcomes". Mitigation: Add 2–3 bullets with %/time/cost deltas per project. Probe: What baseline did you improve and by how much?`);
+    weaknesses.push(
+      `Quantified Impact — Risk: Medium. Evidence: "Few metrics on outcomes". Mitigation: Add 2–3 bullets with %/time/cost deltas per project. Probe: What baseline did you improve and by how much?`
+    );
   }
 
   // Weakness: Formatting
   if (formatting < 60) {
-    weaknesses.push(`Resume Clarity — Risk: Low. Evidence: "Formatting score ${formatting}%". Mitigation: Standardize sections/bullets/dates; trim fluff. Probe: If we skim 30s, what 3 results should pop out?`);
+    weaknesses.push(
+      `Resume Clarity — Risk: Low. Evidence: "Formatting score ${formatting}%". Mitigation: Standardize sections/bullets/dates; trim fluff. Probe: If we skim 30s, what 3 results should pop out?`
+    );
   }
 
   // Weakness: Recency
   if (recency < 60) {
-    weaknesses.push(`Recency — Risk: Medium. Evidence: "Last activity older (recency ${recency}%)". Mitigation: Ship a fresh repo or case study using current stack. Probe: What’s the most recent project you can walk me through end-to-end?`);
+    weaknesses.push(
+      `Recency — Risk: Medium. Evidence: "Last activity older (recency ${recency}%)". Mitigation: Ship a fresh repo or case study using current stack. Probe: What’s the most recent project you can walk me through end-to-end?`
+    );
   }
 
   // Ensure at least 3 strengths by adding safe transferable ones
   while (strengths.length < 3) {
-    strengths.push(`Transferable Strength — Impact: Clear communication and structured thinking. Evidence: "Well-organized sections / role descriptions". Probe: Explain a complex concept from your resume to a non-engineer.`);
+    strengths.push(
+      `Transferable Strength — Impact: Clear communication and structured thinking. Evidence: "Well-organized sections / role descriptions". Probe: Explain a complex concept from your resume to a non-engineer.`
+    );
   }
 
   return {
@@ -504,19 +709,31 @@ function buildDeterministicHRInsights({
       "How do you design a CI/CD pipeline for safety and speed?",
       "Show me a metric you moved—method, baseline, counter-metrics.",
       "Describe a failure in production and your remediation steps.",
-      "How did you align stakeholders with conflicting priorities?"
+      "How did you align stakeholders with conflicting priorities?",
     ],
     hr_summary: {
-      elevator_pitch: `Hands-on ${roleFit}% JD fit with ${techDepth}% technical depth; ${delivery}% delivery signals; focuses on ${topTechs || "core web platform"}.`,
-      must_have_coverage_pct: Math.round(100 * ((jd.items || []).filter(i => i.must).length
-        ? (jdChecklist || []).filter(r => r.status === "Pass" && mustSet.has(r.id)).length / (jd.items || []).filter(i => i.must).length
-        : 1)),
+      elevator_pitch: `Hands-on ${roleFit}% JD fit with ${techDepth}% technical depth; ${delivery}% delivery signals; focuses on ${
+        topTechs || "core web platform"
+      }.`,
+      must_have_coverage_pct: Math.round(
+        100 *
+          ((jd.items || []).filter((i) => i.must).length
+            ? (jdChecklist || []).filter(
+                (r) => r.status === "Pass" && mustSet.has(r.id)
+              ).length / (jd.items || []).filter((i) => i.must).length
+            : 1)
+      ),
       top_driver: roleFit >= 70 ? "Strong JD alignment" : "Solid core stack",
-      key_risk: (mustFails.length ? "Must-have gaps" : (delivery < 60 ? "Delivery depth" : (impact < 40 ? "Impact evidence" : "Moderate risks")))
-    }
+      key_risk: mustFails.length
+        ? "Must-have gaps"
+        : delivery < 60
+        ? "Delivery depth"
+        : impact < 40
+        ? "Impact evidence"
+        : "Moderate risks",
+    },
   };
 }
-
 
 /* ----------------------------- Security & JSON ---------------------------- */
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
@@ -545,6 +762,47 @@ app.use(rateLimit({ windowMs: 60 * 1000, max: 60 }));
  * Company-specific JD library with weights per category.
  * You can PATCH/UPSERT via /api/jd/upsert at runtime.
  */
+// ---- Role aliases / normalizer ----
+const ROLE_ALIASES = {
+  hr: "hr_recruiter",
+  "hr recruiter": "hr_recruiter",
+
+  "frontend engineer (react)": "frontend_engineer_react",
+  "react frontend": "frontend_engineer_react",
+  "react developer": "frontend_engineer_react",
+
+  "frontend engineer (vue,nuxt)": "frontend_engineer_vue_nuxt",
+  "frontend engineer (vue, nuxt)": "frontend_engineer_vue_nuxt",
+  "vue nuxt": "frontend_engineer_vue_nuxt",
+  "vue developer": "frontend_engineer_vue_nuxt",
+
+  "backend engineer (nodejs)": "backend_engineer_node",
+  "backend engineer (node)": "backend_engineer_node",
+  "node backend": "backend_engineer_node",
+  "nodejs developer": "backend_engineer_node",
+
+  "backend engineer (python)": "backend_engineer_python",
+  "python backend": "backend_engineer_python",
+  "python developer": "backend_engineer_python",
+
+  "aws developer": "aws_devops_engineer",
+  "devops engineer": "aws_devops_engineer",
+  "aws devops": "aws_devops_engineer",
+};
+
+function resolveRoleKey(input) {
+  const s = String(input || "")
+    .toLowerCase()
+    .trim();
+  if (JD_BANK[s]) return s; // exact key given
+  if (ROLE_ALIASES[s]) return ROLE_ALIASES[s]; // exact alias
+  // fuzzy contains
+  for (const [k, v] of Object.entries(ROLE_ALIASES)) {
+    if (s.includes(k)) return v;
+  }
+  return s; // fallback to raw (may match existing keys like "software_engineer")
+}
+
 const JD_BANK = {
   /* ======================= Software Engineer (existing) ======================= */
   software_engineer: {
@@ -1182,6 +1440,476 @@ const JD_BANK = {
       },
     ],
   },
+  /* ===================== Frontend Engineer (React) ===================== */
+  frontend_engineer_react: {
+    weights: {
+      react_core: 0.2,
+      state_tooling: 0.14,
+      typescript_testing: 0.12,
+      next_ssr_perf: 0.12,
+      ui_css: 0.1,
+      api_integration: 0.12,
+      ci_cd: 0.1,
+      accessibility: 0.1,
+    },
+    items: [
+      {
+        id: "react_core",
+        must: true,
+        text: "Strong React fundamentals (hooks, components, effects, context)",
+        tags: ["react", "hooks", "context", "jsx", "vite", "webpack", "babel"],
+      },
+      {
+        id: "state_tooling",
+        must: true,
+        text: "State mgmt & FE tooling (Redux/Zustand + bundlers)",
+        tags: ["redux", "zustand", "redux toolkit", "state", "webpack", "vite"],
+      },
+      {
+        id: "typescript_testing",
+        must: true,
+        text: "TypeScript and FE testing",
+        tags: [
+          "typescript",
+          "ts",
+          "jest",
+          "vitest",
+          "testing library",
+          "cypress",
+          "playwright",
+        ],
+      },
+      {
+        id: "next_ssr_perf",
+        must: false,
+        text: "Next.js, SSR/SSG, routing, code-splitting, performance",
+        tags: [
+          "nextjs",
+          "next",
+          "ssr",
+          "ssg",
+          "lazy load",
+          "bundle",
+          "performance",
+        ],
+      },
+      {
+        id: "ui_css",
+        must: false,
+        text: "UI systems & CSS (Tailwind/SCSS/Design System/Storybook)",
+        tags: [
+          "tailwind",
+          "scss",
+          "css",
+          "material ui",
+          "mui",
+          "chakra",
+          "ant design",
+          "storybook",
+          "design system",
+        ],
+      },
+      {
+        id: "api_integration",
+        must: true,
+        text: "API integration and data fetching",
+        tags: [
+          "rest",
+          "graphql",
+          "api",
+          "swr",
+          "react query",
+          "axios",
+          "fetch",
+        ],
+      },
+      {
+        id: "ci_cd",
+        must: false,
+        text: "CI/CD & quality gates",
+        tags: ["ci/cd", "github actions", "gitlab ci", "lint", "prettier"],
+      },
+      {
+        id: "accessibility",
+        must: false,
+        text: "Accessibility & i18n",
+        tags: ["a11y", "accessibility", "aria", "lighthouse", "i18n"],
+      },
+    ],
+  },
+
+  /* ================== Frontend Engineer (Vue / Nuxt) =================== */
+  frontend_engineer_vue_nuxt: {
+    weights: {
+      vue_core: 0.2,
+      state_tooling: 0.14,
+      typescript_testing: 0.12,
+      nuxt_ssr_perf: 0.12,
+      ui_css: 0.1,
+      api_integration: 0.12,
+      ci_cd: 0.1,
+      accessibility: 0.1,
+    },
+    items: [
+      {
+        id: "vue_core",
+        must: true,
+        text: "Strong Vue fundamentals (Composition API/Options API, components)",
+        tags: ["vue", "vue3", "composition api", "options api", "vite"],
+      },
+      {
+        id: "state_tooling",
+        must: true,
+        text: "State mgmt & FE tooling (Pinia/Vuex + bundlers)",
+        tags: ["pinia", "vuex", "state", "webpack", "vite"],
+      },
+      {
+        id: "typescript_testing",
+        must: true,
+        text: "TypeScript and FE testing",
+        tags: ["typescript", "ts", "jest", "vitest", "cypress", "playwright"],
+      },
+      {
+        id: "nuxt_ssr_perf",
+        must: false,
+        text: "Nuxt, SSR/SSG, routing, code-splitting, performance",
+        tags: ["nuxt", "nuxt3", "ssr", "ssg", "lazy load", "performance"],
+      },
+      {
+        id: "ui_css",
+        must: false,
+        text: "UI systems & CSS (Tailwind/SCSS/Design System/Storybook)",
+        tags: [
+          "tailwind",
+          "scss",
+          "css",
+          "vuetify",
+          "quasar",
+          "element plus",
+          "storybook",
+          "design system",
+        ],
+      },
+      {
+        id: "api_integration",
+        must: true,
+        text: "API integration and data fetching",
+        tags: ["rest", "graphql", "api", "axios", "fetch"],
+      },
+      {
+        id: "ci_cd",
+        must: false,
+        text: "CI/CD & quality gates",
+        tags: ["ci/cd", "github actions", "gitlab ci", "lint", "prettier"],
+      },
+      {
+        id: "accessibility",
+        must: false,
+        text: "Accessibility & i18n",
+        tags: ["a11y", "accessibility", "aria", "lighthouse", "i18n"],
+      },
+    ],
+  },
+
+  /* ===================== Backend Engineer (Node.js) ===================== */
+  backend_engineer_node: {
+    weights: {
+      node_core: 0.2,
+      api_design: 0.12,
+      databases: 0.16,
+      auth_security: 0.14,
+      testing_obs: 0.12,
+      cloud_devops: 0.14,
+      architecture: 0.12,
+    },
+    items: [
+      {
+        id: "node_core",
+        must: true,
+        text: "Node.js runtime, Express/Nest, async patterns",
+        tags: ["node", "nodejs", "express", "nest", "async", "middleware"],
+      },
+      {
+        id: "api_design",
+        must: true,
+        text: "API design (REST/GraphQL), versioning, validation",
+        tags: ["api", "rest", "graphql", "openapi", "swagger", "zod", "joi"],
+      },
+      {
+        id: "databases",
+        must: true,
+        text: "Relational/NoSQL, schema/indexing, ORMs",
+        tags: [
+          "postgres",
+          "mysql",
+          "mongodb",
+          "mongoose",
+          "prisma",
+          "knex",
+          "index",
+          "query plan",
+          "sql",
+          "nosql",
+        ],
+      },
+      {
+        id: "auth_security",
+        must: true,
+        text: "AuthN/Z & security best practices",
+        tags: ["jwt", "oauth", "oauth2", "session", "csrf", "owasp", "rbac"],
+      },
+      {
+        id: "testing_obs",
+        must: false,
+        text: "Testing & observability",
+        tags: [
+          "jest",
+          "mocha",
+          "supertest",
+          "cypress",
+          "playwright",
+          "sentry",
+          "datadog",
+          "winston",
+          "pino",
+        ],
+      },
+      {
+        id: "cloud_devops",
+        must: false,
+        text: "Cloud + container basics and CI/CD",
+        tags: [
+          "aws",
+          "gcp",
+          "azure",
+          "docker",
+          "kubernetes",
+          "ci/cd",
+          "github actions",
+          "jenkins",
+          "gitlab ci",
+        ],
+      },
+      {
+        id: "architecture",
+        must: false,
+        text: "Scalability & architecture patterns",
+        tags: [
+          "microservices",
+          "event-driven",
+          "queue",
+          "kafka",
+          "rabbitmq",
+          "caching",
+          "redis",
+        ],
+      },
+    ],
+  },
+
+  /* ===================== Backend Engineer (Python) ===================== */
+  backend_engineer_python: {
+    weights: {
+      py_web: 0.2,
+      api_design: 0.12,
+      databases: 0.16,
+      auth_security: 0.14,
+      testing_obs: 0.12,
+      cloud_devops: 0.14,
+      async_tasks: 0.12,
+    },
+    items: [
+      {
+        id: "py_web",
+        must: true,
+        text: "Python web frameworks",
+        tags: [
+          "python",
+          "django",
+          "fastapi",
+          "flask",
+          "asgiref",
+          "uvicorn",
+          "gunicorn",
+        ],
+      },
+      {
+        id: "api_design",
+        must: true,
+        text: "API design (REST/GraphQL), pydantic/validation",
+        tags: ["api", "rest", "graphql", "openapi", "swagger", "pydantic"],
+      },
+      {
+        id: "databases",
+        must: true,
+        text: "Relational/NoSQL, ORM, migrations",
+        tags: [
+          "postgres",
+          "mysql",
+          "mongodb",
+          "sqlalchemy",
+          "django orm",
+          "alembic",
+          "index",
+          "query plan",
+          "sql",
+        ],
+      },
+      {
+        id: "auth_security",
+        must: true,
+        text: "AuthN/Z & security best practices",
+        tags: ["jwt", "oauth", "oauth2", "session", "csrf", "owasp", "rbac"],
+      },
+      {
+        id: "testing_obs",
+        must: false,
+        text: "Testing & observability",
+        tags: [
+          "pytest",
+          "unittest",
+          "coverage",
+          "sentry",
+          "datadog",
+          "prometheus",
+          "logging",
+        ],
+      },
+      {
+        id: "cloud_devops",
+        must: false,
+        text: "Cloud + container basics and CI/CD",
+        tags: [
+          "aws",
+          "gcp",
+          "azure",
+          "docker",
+          "kubernetes",
+          "ci/cd",
+          "github actions",
+          "jenkins",
+          "gitlab ci",
+        ],
+      },
+      {
+        id: "async_tasks",
+        must: false,
+        text: "Async & background jobs",
+        tags: ["asyncio", "celery", "rq", "dramatiq", "redis", "rabbitmq"],
+      },
+    ],
+  },
+
+  /* =================== AWS Developer / DevOps Engineer =================== */
+  aws_devops_engineer: {
+    weights: {
+      aws_core: 0.18,
+      iac: 0.14,
+      ci_cd: 0.14,
+      containers: 0.14,
+      observability: 0.12,
+      networking_security: 0.1,
+      scripting_automation: 0.1,
+      cost_ha: 0.08,
+    },
+    items: [
+      {
+        id: "aws_core",
+        must: true,
+        text: "AWS core services & day-2 ops",
+        tags: [
+          "aws",
+          "ec2",
+          "s3",
+          "iam",
+          "vpc",
+          "rds",
+          "elb",
+          "alb",
+          "route53",
+          "cloudfront",
+          "lambda",
+          "api gateway",
+        ],
+      },
+      {
+        id: "iac",
+        must: true,
+        text: "Infrastructure as Code",
+        tags: ["terraform", "terragrunt", "cloudformation", "cdk", "iac"],
+      },
+      {
+        id: "ci_cd",
+        must: true,
+        text: "CI/CD pipelines",
+        tags: [
+          "ci/cd",
+          "github actions",
+          "gitlab ci",
+          "jenkins",
+          "codebuild",
+          "codedeploy",
+          "codepipeline",
+        ],
+      },
+      {
+        id: "containers",
+        must: true,
+        text: "Containers & orchestration",
+        tags: ["docker", "ecr", "ecs", "eks", "kubernetes", "helm"],
+      },
+      {
+        id: "observability",
+        must: false,
+        text: "Monitoring, logging, tracing",
+        tags: [
+          "cloudwatch",
+          "prometheus",
+          "grafana",
+          "loki",
+          "tempo",
+          "x-ray",
+          "sentry",
+          "datadog",
+        ],
+      },
+      {
+        id: "networking_security",
+        must: false,
+        text: "Networking & security",
+        tags: [
+          "iam",
+          "kms",
+          "security group",
+          "nacl",
+          "subnet",
+          "vpc",
+          "waf",
+          "shield",
+        ],
+      },
+      {
+        id: "scripting_automation",
+        must: false,
+        text: "Scripting & automation",
+        tags: ["bash", "shell", "python", "boto3", "ansible", "packer"],
+      },
+      {
+        id: "cost_ha",
+        must: false,
+        text: "Cost management & HA",
+        tags: [
+          "cost explorer",
+          "budgets",
+          "asg",
+          "autoscaling",
+          "multi-az",
+          "backup",
+          "dr",
+        ],
+      },
+    ],
+  },
 };
 
 /* ------------------------------ Utility: text ------------------------------ */
@@ -1292,6 +2020,461 @@ async function scrapeLinkedInPublic(url) {
   }
 }
 
+/** ================= Ontology: aliases + implications (all roles) ================= **/
+const TAG_ONTOLOGY = {
+  // === Core CS / Foundation
+  dsa: { aliases: ["dsa", "data structures", "algorithms"], implies: [] },
+  "design patterns": { aliases: ["design patterns", "patterns"], implies: [] },
+
+  // === Frontend: React
+  react: {
+    aliases: ["react", "reactjs", "react.js"],
+    implies: ["hooks", "jsx"],
+  },
+  hooks: {
+    aliases: [
+      "hooks",
+      "useeffect",
+      "use state",
+      "usecontext",
+      "useReducer",
+      "useMemo",
+    ],
+    implies: [],
+  },
+  context: { aliases: ["context", "react context"], implies: [] },
+  jsx: { aliases: ["jsx"], implies: [] },
+  nextjs: {
+    aliases: ["next", "nextjs", "next.js"],
+    implies: ["ssr", "ssg", "routing"],
+  },
+  ssr: { aliases: ["ssr", "server-side rendering"], implies: [] },
+  ssg: { aliases: ["ssg", "static site generation"], implies: [] },
+  "react query": {
+    aliases: ["react query", "@tanstack/react-query", "tanstack query"],
+    implies: [],
+  },
+  "testing library": {
+    aliases: ["testing library", "@testing-library/react"],
+    implies: [],
+  },
+
+  // state/tooling
+  redux: { aliases: ["redux", "redux toolkit", "rtk"], implies: ["state"] },
+  zustand: { aliases: ["zustand"], implies: ["state"] },
+  state: { aliases: ["state", "state management"], implies: [] },
+  webpack: { aliases: ["webpack"], implies: [] },
+  vite: { aliases: ["vite"], implies: [] },
+  babel: { aliases: ["babel"], implies: [] },
+
+  // styling / UI
+  tailwind: { aliases: ["tailwind", "tailwindcss"], implies: [] },
+  scss: { aliases: ["scss", "sass"], implies: [] },
+  css: { aliases: ["css"], implies: [] },
+  storybook: { aliases: ["storybook"], implies: ["design system"] },
+  "design system": {
+    aliases: ["design system", "component library"],
+    implies: [],
+  },
+  "material ui": { aliases: ["material ui", "mui"], implies: ["react"] },
+  chakra: { aliases: ["chakra", "chakra ui"], implies: ["react"] },
+  "ant design": { aliases: ["ant design", "antd"], implies: ["react"] },
+
+  // === Frontend: Vue/Nuxt
+  vue: {
+    aliases: ["vue", "vue.js", "vue2", "vue 2", "vue3", "vue 3"],
+    implies: ["vue3", "composition api", "options api"],
+  },
+  "composition api": {
+    aliases: [
+      "composition api",
+      "script setup",
+      "setup()",
+      "ref()",
+      "reactive()",
+    ],
+    implies: [],
+  },
+  "options api": { aliases: ["options api"], implies: [] },
+  nuxt: {
+    aliases: ["nuxt", "nuxt.js", "nuxt2", "nuxt 2", "nuxt3", "nuxt 3"],
+    implies: ["nuxt3", "ssr", "ssg", "routing"],
+  },
+  pinia: { aliases: ["pinia"], implies: ["state"] },
+  vuex: { aliases: ["vuex"], implies: ["state"] },
+  vuetify: { aliases: ["vuetify"], implies: ["vue"] },
+  quasar: { aliases: ["quasar"], implies: ["vue"] },
+  "element plus": {
+    aliases: ["element plus", "element-plus"],
+    implies: ["vue"],
+  },
+
+  // FE perf
+  "lazy load": {
+    aliases: ["lazy load", "lazy", "code splitting", "code-splitting"],
+    implies: ["performance"],
+  },
+  bundle: {
+    aliases: ["bundle", "bundling", "bundle size"],
+    implies: ["performance"],
+  },
+  performance: {
+    aliases: ["performance", "profiling", "optimize"],
+    implies: [],
+  },
+
+  // === FE testing
+  jest: { aliases: ["jest"], implies: [] },
+  vitest: { aliases: ["vitest"], implies: ["jest"] },
+  cypress: { aliases: ["cypress"], implies: [] },
+  playwright: { aliases: ["playwright"], implies: [] },
+
+  // === Backend: Node
+  node: {
+    aliases: ["node", "nodejs", "node.js"],
+    implies: ["express", "nest"],
+  },
+  express: { aliases: ["express", "express.js"], implies: ["rest"] },
+  nest: { aliases: ["nest", "nestjs"], implies: ["rest"] },
+  middleware: { aliases: ["middleware"], implies: [] },
+  async: { aliases: ["async", "async/await"], implies: [] },
+
+  // === Backend: Python
+  python: { aliases: ["python"], implies: ["django", "flask", "fastapi"] },
+  django: {
+    aliases: ["django", "drf", "django rest framework"],
+    implies: ["rest"],
+  },
+  "django orm": { aliases: ["django orm"], implies: ["sql"] },
+  flask: { aliases: ["flask"], implies: ["rest"] },
+  fastapi: { aliases: ["fastapi"], implies: ["rest"] },
+  pydantic: { aliases: ["pydantic"], implies: [] },
+  asgiref: { aliases: ["asgiref"], implies: [] },
+  uvicorn: { aliases: ["uvicorn"], implies: [] },
+  gunicorn: { aliases: ["gunicorn"], implies: [] },
+
+  // APIs & validation
+  api: { aliases: ["api", "apis"], implies: [] },
+  rest: { aliases: ["rest", "restful"], implies: ["api"] },
+  graphql: { aliases: ["graphql", "gql", "apollo"], implies: ["api"] },
+  openapi: { aliases: ["openapi", "swagger"], implies: [] },
+  swagger: { aliases: ["swagger"], implies: ["openapi"] },
+  zod: { aliases: ["zod"], implies: [] },
+  joi: { aliases: ["joi"], implies: [] },
+
+  // Databases / ORM / MQ
+  postgres: { aliases: ["postgres", "postgresql"], implies: ["sql"] },
+  mysql: { aliases: ["mysql"], implies: ["sql"] },
+  mariadb: { aliases: ["mariadb"], implies: ["mysql", "sql"] },
+  mongodb: { aliases: ["mongodb", "mongo"], implies: ["nosql"] },
+  mongoose: { aliases: ["mongoose"], implies: ["mongodb"] },
+  prisma: { aliases: ["prisma"], implies: ["postgres", "mysql", "sql"] },
+  knex: { aliases: ["knex"], implies: ["sql"] },
+  sqlalchemy: { aliases: ["sqlalchemy"], implies: ["sql"] },
+  alembic: { aliases: ["alembic"], implies: ["sql"] },
+  "query plan": {
+    aliases: ["query plan", "explain analyze"],
+    implies: ["sql"],
+  },
+  index: { aliases: ["index", "indexing", "indexes"], implies: ["sql"] },
+  sql: { aliases: ["sql"], implies: [] },
+  nosql: { aliases: ["nosql"], implies: [] },
+  redis: { aliases: ["redis"], implies: ["caching"] },
+  kafka: { aliases: ["kafka"], implies: [] },
+  rabbitmq: { aliases: ["rabbitmq"], implies: [] },
+  queue: { aliases: ["queue", "message queue"], implies: [] },
+
+  // Auth/Sec
+  jwt: { aliases: ["jwt", "json web token"], implies: ["auth"] },
+  oauth: { aliases: ["oauth"], implies: ["auth"] },
+  oauth2: { aliases: ["oauth2", "oauth 2.0"], implies: ["oauth", "auth"] },
+  session: { aliases: ["session", "session management"], implies: ["auth"] },
+  csrf: { aliases: ["csrf"], implies: ["security"] },
+  owasp: { aliases: ["owasp"], implies: ["security"] },
+  rbac: { aliases: ["rbac", "role based access control"], implies: ["auth"] },
+  auth: {
+    aliases: ["auth", "authentication", "authorization", "authn", "authz"],
+    implies: ["security"],
+  },
+  security: { aliases: ["security"], implies: [] },
+
+  // Cloud & DevOps
+  aws: {
+    aliases: ["aws", "amazon web services"],
+    implies: [
+      "ec2",
+      "s3",
+      "rds",
+      "lambda",
+      "api gateway",
+      "cloudfront",
+      "route53",
+      "iam",
+    ],
+  },
+  gcp: { aliases: ["gcp", "google cloud"], implies: [] },
+  azure: { aliases: ["azure", "microsoft azure"], implies: [] },
+  ec2: { aliases: ["ec2"], implies: [] },
+  s3: { aliases: ["s3"], implies: [] },
+  rds: { aliases: ["rds"], implies: [] },
+  "api gateway": { aliases: ["api gateway"], implies: [] },
+  cloudfront: { aliases: ["cloudfront"], implies: [] },
+  route53: { aliases: ["route53", "route 53"], implies: [] },
+  iam: { aliases: ["iam"], implies: ["security"] },
+  vpc: { aliases: ["vpc"], implies: [] },
+  alb: { aliases: ["alb", "application load balancer"], implies: [] },
+  elb: { aliases: ["elb", "classic load balancer"], implies: [] },
+  ecr: { aliases: ["ecr"], implies: [] },
+  ecs: { aliases: ["ecs"], implies: [] },
+  eks: { aliases: ["eks"], implies: ["kubernetes"] },
+  kubernetes: { aliases: ["kubernetes", "k8s"], implies: [] },
+  helm: { aliases: ["helm"], implies: ["kubernetes"] },
+  terraform: { aliases: ["terraform"], implies: ["iac"] },
+  terragrunt: { aliases: ["terragrunt"], implies: ["terraform", "iac"] },
+  cloudformation: { aliases: ["cloudformation"], implies: ["iac"] },
+  cdk: { aliases: ["cdk", "aws cdk"], implies: ["iac"] },
+  iac: { aliases: ["iac", "infrastructure as code"], implies: [] },
+  docker: {
+    aliases: ["docker", "containers", "containerization", "container"],
+    implies: [],
+  },
+  "ci/cd": {
+    aliases: ["ci/cd", "cicd", "ci cd", "pipeline", "build pipeline"],
+    implies: [
+      "github actions",
+      "gitlab ci",
+      "jenkins",
+      "circleci",
+      "codebuild",
+      "codedeploy",
+      "codepipeline",
+    ],
+  },
+  "github actions": { aliases: ["github actions"], implies: [] },
+  "gitlab ci": { aliases: ["gitlab ci", "gitlab-ci"], implies: ["gitlab"] },
+  gitlab: { aliases: ["gitlab"], implies: [] },
+  jenkins: { aliases: ["jenkins"], implies: [] },
+  circleci: { aliases: ["circleci"], implies: [] },
+  codebuild: { aliases: ["codebuild"], implies: ["aws"] },
+  codedeploy: { aliases: ["codedeploy"], implies: ["aws"] },
+  codepipeline: { aliases: ["codepipeline"], implies: ["aws"] },
+
+  // Observability
+  cloudwatch: { aliases: ["cloudwatch"], implies: [] },
+  prometheus: { aliases: ["prometheus"], implies: [] },
+  grafana: { aliases: ["grafana"], implies: [] },
+  loki: { aliases: ["loki"], implies: [] },
+  tempo: { aliases: ["tempo"], implies: [] },
+  "x-ray": { aliases: ["x-ray", "xray"], implies: [] },
+  sentry: { aliases: ["sentry"], implies: [] },
+  datadog: { aliases: ["datadog"], implies: [] },
+  winston: { aliases: ["winston"], implies: [] },
+  pino: { aliases: ["pino"], implies: [] },
+
+  // Architecture & perf
+  microservices: { aliases: ["microservices"], implies: [] },
+  "event-driven": { aliases: ["event-driven", "event driven"], implies: [] },
+  caching: { aliases: ["caching", "cache"], implies: [] },
+
+  // Async / jobs (Python)
+  asyncio: { aliases: ["asyncio"], implies: [] },
+  celery: { aliases: ["celery"], implies: [] },
+  rq: { aliases: ["rq"], implies: [] },
+  dramatiq: { aliases: ["dramatiq"], implies: [] },
+
+  // === Drupal
+  drupal: {
+    aliases: [
+      "drupal",
+      "drupal8",
+      "drupal 8",
+      "drupal9",
+      "drupal 9",
+      "drupal10",
+      "drupal 10",
+    ],
+    implies: ["php"],
+  },
+  drush: { aliases: ["drush"], implies: ["drupal"] },
+  twig: { aliases: ["twig"], implies: ["theming"] },
+  theming: {
+    aliases: ["theming", "theme", "templates", "paragraphs"],
+    implies: ["css", "html"],
+  },
+  "custom module": {
+    aliases: ["custom module", "module development"],
+    implies: ["drupal"],
+  },
+  "form api": { aliases: ["form api"], implies: ["drupal api"] },
+  "render api": { aliases: ["render api"], implies: ["drupal api"] },
+  "entity api": { aliases: ["entity api"], implies: ["drupal api"] },
+  "drupal api": {
+    aliases: [
+      "drupal api",
+      "services",
+      "hook",
+      "hook_form_alter",
+      "hook_menu",
+      "hook_entity",
+    ],
+    implies: ["drupal"],
+  },
+  "database api": { aliases: ["database api"], implies: ["sql"] },
+  acquia: { aliases: ["acquia", "acquia cloud"], implies: ["cloud"] },
+
+  // === General web
+  html: { aliases: ["html"], implies: [] },
+  javascript: { aliases: ["javascript", "js"], implies: [] },
+  typescript: { aliases: ["typescript", "ts"], implies: [] },
+
+  // === Collaboration / Agile / QA process
+  jira: { aliases: ["jira"], implies: ["agile"] },
+  scrum: { aliases: ["scrum", "scrum master"], implies: ["agile"] },
+  kanban: { aliases: ["kanban"], implies: ["agile"] },
+  agile: { aliases: ["agile"], implies: [] },
+  "pull request": {
+    aliases: ["pull request", "pr", "pr review", "code review"],
+    implies: ["git"],
+  },
+  git: { aliases: ["git"], implies: [] },
+  "unit test": { aliases: ["unit test", "unittest"], implies: [] },
+  "integration test": { aliases: ["integration test"], implies: [] },
+  coverage: { aliases: ["coverage"], implies: [] },
+
+  // === BA / PM / HR
+  communication: {
+    aliases: ["communication", "presentation", "follow-up"],
+    implies: [],
+  },
+  stakeholder: {
+    aliases: ["stakeholder", "hiring manager", "client"],
+    implies: ["communication"],
+  },
+  "status report": { aliases: ["status report", "report"], implies: [] },
+  dashboard: { aliases: ["dashboard"], implies: ["report"] },
+  "user stories": {
+    aliases: ["user stories", "story", "stories"],
+    implies: [],
+  },
+  brd: {
+    aliases: ["brd", "business requirements document"],
+    implies: ["requirements"],
+  },
+  frd: {
+    aliases: ["frd", "functional requirements document"],
+    implies: ["requirements"],
+  },
+  "acceptance criteria": {
+    aliases: ["acceptance criteria", "ac"],
+    implies: ["requirements"],
+  },
+  requirements: { aliases: ["requirements", "requirement"], implies: [] },
+  figma: { aliases: ["figma"], implies: [] },
+  wireframe: { aliases: ["wireframe", "wireframes"], implies: [] },
+  flow: { aliases: ["flow", "process flow"], implies: [] },
+  prototype: { aliases: ["prototype", "prototyping"], implies: [] },
+  sdlc: { aliases: ["sdlc", "software lifecycle"], implies: [] },
+  standup: { aliases: ["standup", "daily standup"], implies: ["scrum"] },
+  sprint: {
+    aliases: ["sprint", "sprint planning", "review", "retro", "retrospective"],
+    implies: ["scrum"],
+  },
+  testrail: { aliases: ["testrail"], implies: [] },
+  zephyr: { aliases: ["zephyr"], implies: [] },
+  "test case": { aliases: ["test case", "test cases"], implies: [] },
+  defect: { aliases: ["defect", "bug"], implies: [] },
+  uat: {
+    aliases: ["uat", "user acceptance testing", "acceptance"],
+    implies: ["test case"],
+  },
+  ats: { aliases: ["ats", "applicant tracking system"], implies: [] },
+  zoho: { aliases: ["zoho"], implies: ["ats"] },
+  lever: { aliases: ["lever"], implies: ["ats"] },
+  greenhouse: { aliases: ["greenhouse"], implies: ["ats"] },
+  naukri: { aliases: ["naukri"], implies: [] },
+  indeed: { aliases: ["indeed"], implies: [] },
+  "linkedin recruiter": {
+    aliases: ["linkedin recruiter"],
+    implies: ["linkedin"],
+  },
+  linkedin: { aliases: ["linkedin"], implies: [] },
+  "boolean search": { aliases: ["boolean search"], implies: [] },
+  mentoring: { aliases: ["mentoring", "mentor"], implies: [] },
+  interview: { aliases: ["interview", "interviews"], implies: [] },
+  roadmap: { aliases: ["roadmap"], implies: [] },
+  "technical direction": { aliases: ["technical direction"], implies: [] },
+  estimation: { aliases: ["estimation", "estimate"], implies: [] },
+  planning: { aliases: ["planning"], implies: [] },
+  raid: {
+    aliases: ["raid", "risks", "assumptions", "issues", "dependencies"],
+    implies: ["risk"],
+  },
+  risk: {
+    aliases: ["risk", "risk management", "dependency", "blocker"],
+    implies: [],
+  },
+
+  // Misc
+  accessibility: { aliases: ["accessibility", "a11y", "aria"], implies: [] },
+  i18n: { aliases: ["i18n", "internationalization"], implies: [] },
+};
+
+/** build alias → canon index */
+const ALIAS_TO_CANON = new Map();
+for (const [canon, obj] of Object.entries(TAG_ONTOLOGY)) {
+  (obj.aliases || []).forEach((a) =>
+    ALIAS_TO_CANON.set(String(a).toLowerCase(), canon)
+  );
+}
+
+function canonicalize(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+function wordBoundary(alias) {
+  const safe = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9])${safe}([^A-Za-z0-9]|$)`, "i");
+}
+
+function matchOntology(rawText) {
+  const raw = canonicalize(rawText);
+  const canonDirect = new Set();
+  const canonInferred = new Set();
+
+  // direct hits by alias (whole-word)
+  for (const [alias, canon] of ALIAS_TO_CANON.entries()) {
+    if (wordBoundary(alias).test(raw)) canonDirect.add(canon);
+  }
+
+  // closure: propagate implications
+  const queue = [...canonDirect];
+  const seen = new Set(queue);
+  while (queue.length) {
+    const c = queue.shift();
+    const implies = TAG_ONTOLOGY[c]?.implies || [];
+    for (const nxt of implies) {
+      const canonNxt =
+        ALIAS_TO_CANON.get(canonicalize(nxt)) || canonicalize(nxt);
+      if (!seen.has(canonNxt)) {
+        canonInferred.add(canonNxt);
+        seen.add(canonNxt);
+        queue.push(canonNxt);
+      }
+    }
+  }
+  return { canonDirect, canonInferred };
+}
+
+function tagHitWithOntology(tag, rawText) {
+  const canon = ALIAS_TO_CANON.get(canonicalize(tag)) || canonicalize(tag);
+  const { canonDirect, canonInferred } = matchOntology(rawText);
+  if (canonDirect.has(canon)) return { hit: true, kind: "direct" };
+  if (canonInferred.has(canon)) return { hit: true, kind: "inferred" };
+  return { hit: false, kind: null };
+}
+
 /* ---------------------- Deterministic keyword signals --------------------- */
 function tokenize(s) {
   return toLower(s)
@@ -1377,25 +2560,110 @@ function scoreKeywordsFromATS(ats) {
 }
 
 /* ------------------------------- ATS from JD ------------------------------ */
-function fallbackATSFromJD(candidateText, jd, role) {
-  const raw = (candidateText || "").toLowerCase();
-  const tokens = new Set(
-    tokenize(candidateText).map((t) => t.replace(/\s+/g, ""))
-  );
+// function fallbackATSFromJD(candidateText, jd, role) {
+//   const raw = (candidateText || "").toLowerCase();
+//   const tokens = new Set(
+//     tokenize(candidateText).map((t) => t.replace(/\s+/g, ""))
+//   );
 
+//   const all = new Set();
+//   (jd.items || []).forEach((it) =>
+//     (it.tags || []).forEach((tg) => all.add(toLower(String(tg).trim())))
+//   );
+
+//   const matched = new Set();
+//   const missing = new Set();
+
+//   for (const tg of all) {
+//     if (tagMatch(tg, tokens, raw, role)) matched.add(tg);
+//     else missing.add(tg);
+//   }
+//   return { matched: Array.from(matched), missing: Array.from(missing) };
+// }
+
+// === NEW: whole-word guard for brand tools
+const WHOLE_WORD_GUARD = ["git", "lever", "greenhouse", "zoho"];
+
+// === NEW: Ontology-aware ATS
+function buildATSForRole(candidateText, jdForRole) {
+  const raw = canonicalize(candidateText || "");
   const all = new Set();
-  (jd.items || []).forEach((it) =>
-    (it.tags || []).forEach((tg) => all.add(toLower(String(tg).trim())))
-  );
+  for (const it of jdForRole.items || [])
+    (it.tags || []).forEach((t) => all.add(canonicalize(t)));
 
   const matched = new Set();
-  const missing = new Set();
+  const inferred = new Set();
+  const missing = new Set(all);
 
   for (const tg of all) {
-    if (tagMatch(tg, tokens, raw, role)) matched.add(tg);
-    else missing.add(tg);
+    const { hit, kind } = tagHitWithOntology(tg, raw);
+    if (hit) {
+      matched.add(tg);
+      missing.delete(tg);
+      if (kind === "inferred") inferred.add(tg);
+    }
   }
-  return { matched: Array.from(matched), missing: Array.from(missing) };
+
+  // extra safety on ambiguous short words
+  for (const tricky of WHOLE_WORD_GUARD) {
+    if (all.has(tricky) && !wordBoundary(tricky).test(raw)) {
+      matched.delete(tricky);
+      missing.add(tricky);
+      inferred.delete(tricky);
+    }
+  }
+
+  return {
+    matched: [...matched],
+    missing: [...missing],
+    inferred: [...inferred],
+    coveragePct:
+      (matched.size / Math.max(1, matched.size + missing.size)) * 100,
+  };
+}
+
+// === NEW: Ontology-aware deterministic checklist (with partial credit)
+function checklistFromJD(candidateText, jdForRole) {
+  const raw = canonicalize(candidateText || "");
+  const rows = [];
+
+  for (const it of jdForRole.items || []) {
+    const tags = (it.tags || []).map(canonicalize);
+    let points = 0;
+    let directCount = 0;
+
+    for (const tg of tags) {
+      const { hit, kind } = tagHitWithOntology(tg, raw);
+      if (hit) {
+        if (kind === "direct") {
+          points += 1;
+          directCount += 1;
+        } else {
+          points += 0.6;
+        }
+      }
+    }
+
+    const denom = Math.max(1, tags.length);
+    const frac = points / denom;
+
+    const status = points > 0 ? "Pass" : "Fail";
+    let level = "Weak";
+    if (frac >= 0.8 || directCount >= 3) level = "Strong";
+    else if (frac >= 0.5 || directCount >= 2) level = "Medium";
+
+    rows.push({
+      id: it.id,
+      skill: it.text,
+      status,
+      level,
+      must: !!it.must,
+      weight: jdForRole.weights?.[it.id] ?? 0.05,
+      evidence_spans: [],
+    });
+  }
+
+  return rows;
 }
 
 /* --------------------------- Experience & recency -------------------------- */
@@ -1455,7 +2723,7 @@ function deterministicJDChecklist(candidateText, jd, role) {
 
 /* ---------------------- Hireability scoring (cards) ----------------------- */
 // const LVL = { Strong: 1.0, Medium: 0.75, Weak: 0.4 };
-const LVL = { Strong: 1.0, Medium: 0.80, Weak: 0.60 };
+const LVL = { Strong: 1.0, Medium: 0.8, Weak: 0.6 };
 
 function scoreRoleFit(jdChecklist = [], jdWeights = {}, jdItems = []) {
   if (!Array.isArray(jdChecklist) || jdChecklist.length === 0)
@@ -1917,7 +3185,6 @@ ${candidateEvidence}`;
 //   );
 // }
 
-
 /* ----------------------------- JSON safe parse ---------------------------- */
 function tryParseJSON(raw) {
   try {
@@ -1990,7 +3257,9 @@ app.post("/api/jd/upsert", async (req, res) => {
 app.post("/api/analyze", upload.single("resume"), async (req, res) => {
   const started = Date.now();
   try {
-    const role = (req.body.role || "software_engineer").toLowerCase().trim();
+    // const role = (req.body.role || "software_engineer").toLowerCase().trim();
+    const roleInput = req.body.role || "software_engineer";
+    const role = resolveRoleKey(roleInput);
     const linkedinUrl = stripWhitespace(req.body.linkedinUrl || "");
     if (!JD_BANK[role])
       return res.status(400).json({ error: `Unknown role: ${role}` });
@@ -2005,11 +3274,9 @@ app.post("/api/analyze", upload.single("resume"), async (req, res) => {
       }
     }
     if (!resumeText && !linkedinUrl) {
-      return res
-        .status(400)
-        .json({
-          error: "Please provide a resume (PDF/DOCX). LinkedIn is optional.",
-        });
+      return res.status(400).json({
+        error: "Please provide a resume (PDF/DOCX). LinkedIn is optional.",
+      });
     }
 
     // 2) LinkedIn (public, optional, bonus only)
@@ -2041,8 +3308,10 @@ app.post("/api/analyze", upload.single("resume"), async (req, res) => {
     // 4) Deterministic signals & deterministic JD checklist
     const jd = JD_BANK[role];
     const signals = buildSignals(atsText, jd);
-    const detChecklist = deterministicJDChecklist(atsText, jd, role);
-    let ats = fallbackATSFromJD(atsText, jd, role);
+    // const detChecklist = deterministicJDChecklist(atsText, jd, role);
+    const detChecklist = checklistFromJD(atsText, jd);
+    // let ats = fallbackATSFromJD(atsText, jd, role);
+    let ats = buildATSForRole(atsText, jd);
 
     const formattingDet = scoreFormattingHeuristic(resumeText || liText); // allow LI to help a bit if no resume
     const impactDet = scoreImpactHeuristic(candidateData);
@@ -2130,8 +3399,12 @@ app.post("/api/analyze", upload.single("resume"), async (req, res) => {
       });
     }
 
-    jd_checklist = sanitizeChecklist(jd_checklist, detChecklist, resumeText || liText, role);
-
+    jd_checklist = sanitizeChecklist(
+      jd_checklist,
+      detChecklist,
+      resumeText || liText,
+      role
+    );
 
     // 10) Recompute role-fit on merged checklist
     const roleFitMerged = scoreRoleFit(
@@ -2146,10 +3419,10 @@ app.post("/api/analyze", upload.single("resume"), async (req, res) => {
     //     ? (0.8 - roleFitMerged.mustCoverage) * 30
     //     : 0;
     // AFTER (quadratic, smaller max, starts only below 0.7 coverage)
-const MUST_PENALTY_MAX = Number(process.env.MUST_PENALTY_MAX || 12); // pts
-const MUST_PENALTY_THR = Number(process.env.MUST_PENALTY_THR || 0.70); // coverage
-const deficit = Math.max(0, MUST_PENALTY_THR - roleFitMerged.mustCoverage);
-const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit); // gentle near threshold
+    const MUST_PENALTY_MAX = Number(process.env.MUST_PENALTY_MAX || 12); // pts
+    const MUST_PENALTY_THR = Number(process.env.MUST_PENALTY_THR || 0.7); // coverage
+    const deficit = Math.max(0, MUST_PENALTY_THR - roleFitMerged.mustCoverage);
+    const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit); // gentle near threshold
     const baseOverall =
       0.58 * (roleFitMerged.score / 100) + // JD alignment slightly higher
       0.14 * (techDepthDet.score / 100) +
@@ -2188,11 +3461,11 @@ const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit); // gentle 
     //   return "fail";
     // };
     const bandFromScore = (overall, roleFitScore) => {
-  if (overall >= 78) return "strong_pass";
-  if (overall >= 58) return "normal_pass";
-  if (overall >= 48 || roleFitScore >= 60) return "low_pass";
-  return "fail";
-};
+      if (overall >= 78) return "strong_pass";
+      if (overall >= 58) return "normal_pass";
+      if (overall >= 48 || roleFitScore >= 60) return "low_pass";
+      return "fail";
+    };
     const band = bandFromScore(overallBlended, roleFitMerged.score);
     const actionMap = {
       strong_pass: "immediate_hire",
@@ -2234,46 +3507,58 @@ const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit); // gentle 
     ];
 
     // 16) Strengths/Weaknesses from signals (deterministic)
-let strengths = [];
-let weaknesses = [];
+    let strengths = [];
+    let weaknesses = [];
 
-// Prefer LLM if it returned useful, non-empty lists
-const strengthsLLM = Array.isArray(parsed.strengths) ? parsed.strengths.map(s => String(s).trim()).filter(Boolean) : [];
-const weaknessesLLM = Array.isArray(parsed.weaknesses) ? parsed.weaknesses.map(s => String(s).trim()).filter(Boolean) : [];
+    // Prefer LLM if it returned useful, non-empty lists
+    const strengthsLLM = Array.isArray(parsed.strengths)
+      ? parsed.strengths.map((s) => String(s).trim()).filter(Boolean)
+      : [];
+    const weaknessesLLM = Array.isArray(parsed.weaknesses)
+      ? parsed.weaknesses.map((s) => String(s).trim()).filter(Boolean)
+      : [];
 
-// Build deterministic HR insights as fallback or to blend
-const hrDet = buildDeterministicHRInsights({
-  roleFit: roleFitMerged.score,
-  techDepth: techDepthDet.score,
-  delivery: deliveryDet.score,
-  atsPct: scoreKeywordsFromATS(ats) ?? 0,
-  formatting: formattingDet,
-  impact: impactDet,
-  recency: recencyDet,
-  jd,
-  jd_checklist,
-  ats,
-  resumeText,
-  liText,
-  candidateData,
-});
+    // Build deterministic HR insights as fallback or to blend
+    const hrDet = buildDeterministicHRInsights({
+      roleFit: roleFitMerged.score,
+      techDepth: techDepthDet.score,
+      delivery: deliveryDet.score,
+      atsPct: scoreKeywordsFromATS(ats) ?? 0,
+      formatting: formattingDet,
+      impact: impactDet,
+      recency: recencyDet,
+      jd,
+      jd_checklist,
+      ats,
+      resumeText,
+      liText,
+      candidateData,
+    });
 
-// Merge policy:
-// - Use LLM if present; top up with deterministic to guarantee min counts.
-// - Always dedupe and cap list sizes (5 strengths, 4 weaknesses).
-strengths = uniqKeepOrder([...(strengthsLLM || []), ...hrDet.strengths]).slice(0, 5);
-weaknesses = uniqKeepOrder([...(weaknessesLLM || []), ...hrDet.weaknesses]).slice(0, 4);
+    // Merge policy:
+    // - Use LLM if present; top up with deterministic to guarantee min counts.
+    // - Always dedupe and cap list sizes (5 strengths, 4 weaknesses).
+    strengths = uniqKeepOrder([
+      ...(strengthsLLM || []),
+      ...hrDet.strengths,
+    ]).slice(0, 5);
+    weaknesses = uniqKeepOrder([
+      ...(weaknessesLLM || []),
+      ...hrDet.weaknesses,
+    ]).slice(0, 4);
 
-// As a safety net: never ship zero strengths
-if (strengths.length < 3) strengths = hrDet.strengths;
-if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
+    // As a safety net: never ship zero strengths
+    if (strengths.length < 3) strengths = hrDet.strengths;
+    if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
 
-// Optional: stash richer HR aids if the LLM provided them
-const hr_strengths_rich = parsed.extended?.hr_strengths_rich || hrDet.hr_strengths_rich;
-const hr_weaknesses_rich = parsed.extended?.hr_weaknesses_rich || hrDet.hr_weaknesses_rich;
-const hr_interview_probes = parsed.extended?.hr_interview_probes || hrDet.hr_interview_probes;
-const hr_summary = parsed.extended?.hr_summary || hrDet.hr_summary;
-
+    // Optional: stash richer HR aids if the LLM provided them
+    const hr_strengths_rich =
+      parsed.extended?.hr_strengths_rich || hrDet.hr_strengths_rich;
+    const hr_weaknesses_rich =
+      parsed.extended?.hr_weaknesses_rich || hrDet.hr_weaknesses_rich;
+    const hr_interview_probes =
+      parsed.extended?.hr_interview_probes || hrDet.hr_interview_probes;
+    const hr_summary = parsed.extended?.hr_summary || hrDet.hr_summary;
 
     // 17) Score breakdown object
     const mustIds = new Set(
@@ -2478,10 +3763,10 @@ const hr_summary = parsed.extended?.hr_summary || hrDet.hr_summary;
         version: BUILD_VERSION,
         latency_ms: Date.now() - started,
       },
-        hr_strengths_rich,
-  hr_weaknesses_rich,
-  hr_interview_probes,
-  hr_summary,
+      hr_strengths_rich,
+      hr_weaknesses_rich,
+      hr_interview_probes,
+      hr_summary,
     };
 
     return res.json(response);
