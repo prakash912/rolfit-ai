@@ -226,6 +226,18 @@ export default function AnalyzeResume3Step() {
   const [result, setResult] = useState<LegacyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+const [jdMode, setJdMode] = useState<"default" | "upload" | "text">("default");
+const [jdFile, setJdFile] = useState<File | null>(null);
+const [jdText, setJdText] = useState("");
+
+function getJDExample(r: string) {
+  if (r === "qa_engineer") {
+    return `Required: 3+ years manual testing for web/mobile and API.\nAutomation with Selenium or Cypress (nice to have Playwright).\nAPI testing with Postman/Swagger.\nBug tracking in Jira/Zephyr; write and maintain test cases.\nFamiliar with CI/CD and Git.\nGood communication for client updates.`;
+  }
+  // default software engineer example
+  return `Required: 3+ years with React and Node.js.\nTypeScript, REST and/or GraphQL APIs.\nSQL (Postgres/MySQL) and a NoSQL (MongoDB) nice to have.\nAuthN/Z (JWT/OAuth2) and security basics.\nAWS exposure (S3, EC2, Lambda) and CI/CD (GitHub Actions/Jenkins).\nClear communication and code reviews.`;
+}
+
   // ===== Visual refs (GSAP) =====
   const scanOverlayRef = useRef<HTMLDivElement>(null);
   const scanBarsRef = useRef<HTMLDivElement>(null);
@@ -557,6 +569,9 @@ export default function AnalyzeResume3Step() {
     fd.append("role", role);
     fd.append("resume", resumeFile);
     if (linkedinUrl) fd.append("linkedinUrl", linkedinUrl.trim());
+     fd.append("jd_mode", jdMode);
+if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
+ if (jdMode === "text" && jdText.trim()) fd.append("jd_text", jdText.trim());
 
     setLoading(true);
     try {
@@ -1041,15 +1056,93 @@ export default function AnalyzeResume3Step() {
           {/* Step 1 */}
           {step === 1 && (
             <Card className="mb-8 shadow-sm">
+
+              <Card className="mb-8 shadow-sm">
               <CardHeader className="border-b bg-slate-50/80">
                 <CardTitle className="flex items-center gap-2 text-xl">
-                  <Upload className="h-5 w-5 text-blue-500" /> Step 1: Add
+
+              <div><Upload className="h-5 w-5 text-blue-500" /> Step 1: Add
                   Details & Resume
-                </CardTitle>
                 <CardDescription>
                   Choose role, paste LinkedIn, and add your resume (PDF/DOCX)
-                </CardDescription>
-              </CardHeader>
+                </CardDescription></div>
+                </CardTitle>
+                </CardHeader>
+                </Card>
+
+  <CardHeader>
+    <CardTitle className="text-base">Job Description</CardTitle>
+    <CardDescription>Select how you want to provide the JD.</CardDescription>
+  </CardHeader>
+  <CardContent className="space-y-3">
+    <div className="flex gap-2">
+      <Button variant={jdMode === "default" ? "default" : "outline"} size="sm" onClick={() => setJdMode("default")}>
+        Use default SYMB JD
+      </Button>
+      <Button variant={jdMode === "upload" ? "default" : "outline"} size="sm" onClick={() => setJdMode("upload")}>
+        Upload JD
+      </Button>
+      <Button variant={jdMode === "text" ? "default" : "outline"} size="sm" onClick={() => setJdMode("text")}>
+        Write JD
+      </Button>
+    </div>
+
+    {jdMode === "upload" && (
+      <div className="flex items-center gap-3">
+        <Input
+          type="file"
+          accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          onChange={(e) => setJdFile(e.target.files?.[0] || null)}
+        />
+        {jdFile && (
+          <div className="text-xs text-gray-500">
+            {jdFile.name} • {(jdFile.size / 1024).toFixed(1)} KB
+            <Button variant="ghost" size="icon" onClick={() => setJdFile(null)} className="ml-1">
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+    )}
+
+    {jdMode === "text" && (
+      <div className="space-y-2">
+        <textarea
+          className="w-full rounded border p-3 text-sm min-h-[140px]"
+          placeholder={`Paste or type the JD here. One requirement per line.\n\nTip: mark must-haves with words like "Required", "Must", or "3+ years".`}
+          value={jdText}
+          onChange={(e) => setJdText(e.target.value)}
+        />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setJdText(getJDExample(role))}
+          >
+            Use example JD
+          </Button>
+          <span className="text-xs text-gray-500">We’ll detect must-haves and tags automatically.</span>
+        </div>
+      </div>
+    )}
+
+    {jdMode === "default" && (
+      <div className="text-xs text-gray-600">
+        Using the built-in SYMB JD for <b>{formatValue(role)}</b>. You can switch to “Upload JD” or “Write JD” anytime.
+      </div>
+    )}
+  </CardContent>
+
+{result?.extended?.jd_origin && (
+  <div className="text-xs text-gray-500 mt-2">
+    JD mode: <b>{result.extended.jd_origin.mode}</b>
+    {result.extended.jd_origin.items ? ` • ${result.extended.jd_origin.items} items` : null}
+    {result.extended.jd_origin.note ? ` — ${result.extended.jd_origin.note}` : null}
+  </div>
+)}
+
+      
               <CardContent className="pt-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div>
@@ -1149,7 +1242,7 @@ export default function AnalyzeResume3Step() {
                       : "Drag and drop your resume"}
                   </p>
                   <p className="text-gray-500 mb-6">or</p>
-                  <Input
+                    <Input
                     id="resume-input"
                     type="file"
                     accept=".pdf,.docx"
@@ -1158,7 +1251,7 @@ export default function AnalyzeResume3Step() {
                   />
                   <label
                     htmlFor="resume-input"
-                    className="inline-flex items-center justify-center rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 h-10 px-6 py-2 cursor-pointer shadow-sm hover:shadow"
+                    className="mt-4 mx-3 inline-flex items-center justify-center rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 h-10 px-6 py-2 cursor-pointer shadow-sm hover:shadow"
                   >
                     Browse Files
                   </label>

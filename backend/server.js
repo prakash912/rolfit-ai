@@ -735,6 +735,69 @@ function buildDeterministicHRInsights({
   };
 }
 
+function slugifyId(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 40) || "item";
+}
+
+// Parse freeform JD text into { weights, items[] } compatible with JD_BANK
+// function buildJDFromText(jdText) {
+//   const raw = stripWhitespace(jdText || "");
+//   if (!raw) return { weights: {}, items: [] };
+
+//   // split by bullets / lines
+//   const lines = raw
+//     .split(/\n|•|▪|●|\-|\u2013|\u2014/g)
+//     .map((s) => stripWhitespace(s))
+//     .filter((s) => s.length >= 6);
+
+//   // keep first ~12 unique lines as JD items
+//   const uniq = [];
+//   const seen = new Set();
+//   for (const ln of lines) {
+//     const k = ln.toLowerCase();
+//     if (!seen.has(k)) {
+//       seen.add(k);
+//       uniq.push(ln);
+//       if (uniq.length >= 12) break;
+//     }
+//   }
+
+//   // quick must-have detector
+//   const IS_MUST = /\b(required|required\.|must|mandatory|need(ed)?|at least|(\d+\+?\s*years?))\b/i;
+
+//   // tag extraction per item using ontology aliases (whole-word)
+//   const pickTagsFrom = (txt) => {
+//     const out = new Set();
+//     const low = txt.toLowerCase();
+//     for (const [alias, canon] of ALIAS_TO_CANON.entries()) {
+//       const re = wordBoundary(alias);
+//       if (re.test(low)) out.add(canon);
+//       if (out.size >= 8) break; // cap per item
+//     }
+//     return [...out];
+//   };
+
+//   const items = uniq.map((text) => {
+//     const id = slugifyId(text.split(/\s+/).slice(0, 6).join(" "));
+//     const must = IS_MUST.test(text);
+//     const tags = pickTagsFrom(text);
+//     return { id, text, must, tags };
+//   });
+
+//   // weights: give must=1.6, nice=1.0, then normalize
+//   const base = items.map((it) => (it.must ? 1.6 : 1.0));
+//   const sum = base.reduce((a, b) => a + b, 0) || 1;
+//   const weights = {};
+//   items.forEach((it, i) => (weights[it.id] = +(base[i] / sum).toFixed(4)));
+
+//   return { weights, items };
+// }
+
+
 /* ----------------------------- Security & JSON ---------------------------- */
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(morgan("tiny"));
@@ -3254,527 +3317,562 @@ app.post("/api/jd/upsert", async (req, res) => {
 });
 
 /* ------------------------------- API: Analyze ----------------------------- */
-app.post("/api/analyze", upload.single("resume"), async (req, res) => {
-  const started = Date.now();
-  try {
-    // const role = (req.body.role || "software_engineer").toLowerCase().trim();
-    const roleInput = req.body.role || "software_engineer";
-    const role = resolveRoleKey(roleInput);
-    const linkedinUrl = stripWhitespace(req.body.linkedinUrl || "");
-    if (!JD_BANK[role])
-      return res.status(400).json({ error: `Unknown role: ${role}` });
+// --- Minimal JD builder from free-text or uploaded JD file ------------------
+// You can move this helper to your utilities section if you prefer.
+function buildJDFromText(jdTextRaw = "") {
+  const text = String(jdTextRaw || "").trim();
+  if (!text) return { weights: {}, items: [] };
 
-    // 1) Resume text (REQUIRED for decision)
-    let resumeText = "";
-    if (req.file) {
-      try {
-        resumeText = await bufferToText(req.file);
-      } catch (e) {
-        return res.status(400).json({ error: e.message });
+  // split into candidate "items" (bullets / lines / sentences)
+  const lines = text
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // If the text isn't bulleted, try to break on sentences
+  const parts =
+    lines.length >= 3
+      ? lines
+      : text.split(/[\.\;\n]+/).map((s) => s.trim()).filter(Boolean);
+
+  // Limit to 12 concise requirements
+  const rawItems = parts.slice(0, 12);
+
+  // Try to infer tags for each item using TAG_ONTOLOGY aliases
+  const aliasEntries = Array.from(ALIAS_TO_CANON.keys());
+  const items = rawItems.map((line, idx) => {
+    const lower = line.toLowerCase();
+    const tags = [];
+    for (const alias of aliasEntries) {
+      const rx = new RegExp(`(^|[^A-Za-z0-9])${alias}([^A-Za-z0-9]|$)`, "i");
+      if (rx.test(lower)) tags.push(alias);
+      if (tags.length >= 6) break;
+    }
+    // unique + canonicalize tags to the form used elsewhere
+    const uniq = Array.from(new Set(tags))
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    return {
+      id: `custom_${idx + 1}`,
+      text: line,
+      must: idx < Math.ceil(rawItems.length * 0.5), // first half "must-have"
+      tags: uniq.length ? uniq : line.split(/\s+/).slice(0, 3), // fallback: first 3 tokens
+    };
+  });
+
+  // Even weights across items; normalize to sum≈1.0
+  const w = items.length ? 1 / items.length : 0;
+  const weights = {};
+  for (const it of items) weights[it.id] = w;
+
+  return { weights, items };
+}
+
+// ----------------------------- ANALYZE ROUTE --------------------------------
+app.post(
+  "/api/analyze",
+  upload.fields([
+    { name: "resume", maxCount: 1 },
+    { name: "jd", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const started = Date.now();
+    try {
+      // 1) Resolve role FIRST (JD selection needs it)
+      const roleInput = req.body.role || "software_engineer";
+      const role = resolveRoleKey(roleInput);
+      if (!JD_BANK[role]) {
+        return res.status(400).json({ error: `Unknown role: ${role}` });
       }
-    }
-    if (!resumeText && !linkedinUrl) {
-      return res.status(400).json({
-        error: "Please provide a resume (PDF/DOCX). LinkedIn is optional.",
-      });
-    }
 
-    // 2) LinkedIn (public, optional, bonus only)
-    let liText = "",
-      liStatus = {
+      // small helpers / inputs
+      const getFile = (name) =>
+        (req.files && req.files[name] && req.files[name][0]) || null;
+
+      const linkedinUrl = stripWhitespace(req.body.linkedinUrl || "");
+      const jdMode = String(req.body.jd_mode || "default").toLowerCase(); // "default" | "upload" | "text"
+      const jdTextRaw = stripWhitespace(req.body.jd_text || "");
+
+      // 2) Resume text (required unless LinkedIn provided—per your policy)
+      let resumeText = "";
+      const resumeFile = getFile("resume");
+      if (resumeFile) {
+        try {
+          resumeText = await bufferToText(resumeFile);
+        } catch (e) {
+          return res.status(400).json({ error: e.message });
+        }
+      }
+      if (!resumeText && !linkedinUrl) {
+        return res.status(400).json({
+          error: "Please provide a resume (PDF/DOCX). LinkedIn is optional.",
+        });
+      }
+
+      // 3) LinkedIn (optional, bonus only)
+      let liText = "";
+      let liStatus = {
         ok: false,
         used: false,
         method: null,
         reason: "Not provided",
         chars: 0,
       };
-    if (linkedinUrl) {
-      const resLi = await scrapeLinkedInPublic(linkedinUrl);
-      liText = resLi.text || "";
-      liStatus = resLi.status || liStatus;
-    }
-
-    const atsText = atsBaseText(resumeText, liText); // resume-only by default
-
-    // 3) Build candidate bundle
-    const candidateData = stripWhitespace(
-      `ROLE: ${role}\n\n=== RESUME ===\n${
-        resumeText || "(none)"
-      }\n\n=== LINKEDIN [${liStatus.method || "none"}] ===\n${
-        liText || "(none)"
-      }`
-    );
-
-    // 4) Deterministic signals & deterministic JD checklist
-    const jd = JD_BANK[role];
-    const signals = buildSignals(atsText, jd);
-    // const detChecklist = deterministicJDChecklist(atsText, jd, role);
-    const detChecklist = checklistFromJD(atsText, jd);
-    // let ats = fallbackATSFromJD(atsText, jd, role);
-    let ats = buildATSForRole(atsText, jd);
-
-    const formattingDet = scoreFormattingHeuristic(resumeText || liText); // allow LI to help a bit if no resume
-    const impactDet = scoreImpactHeuristic(candidateData);
-    const recencyDet = estimateRecencyScore(candidateData);
-    const keywordsDet = scoreKeywordsFromATS(ats) ?? 0;
-
-    // 6) Deterministic role-fit & other signals
-    const roleFitDet = scoreRoleFit(
-      detChecklist,
-      jd.weights || {},
-      jd.items || []
-    );
-    const techDepthDet = scoreTechDepth(candidateData);
-    const deliveryDet = scoreDelivery(candidateData);
-    const riskDet = scoreRisk(
-      { red_flags: [] },
-      detChecklist,
-      [],
-      jd.items || []
-    );
-
-    // 7) LLM adjudication (optional)
-    const model = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
-    const client = new Groq({ apiKey: process.env.GROQ_API_KEY || "" });
-    let parsed = {};
-    let raw = "";
-    if (process.env.GROQ_API_KEY) {
-      const prompt = buildPromptLLM(role, jd, candidateData, signals);
-      const completion = await client.chat.completions.create({
-        model,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a strict JSON machine. Reply with JSON ONLY and VALID per the provided schema.",
-          },
-          { role: "user", content: prompt },
-        ],
-      });
-      raw = (completion.choices?.[0]?.message?.content || "")
-        .replace(/```json|```/g, "")
-        .trim();
-      parsed = tryParseJSON(raw) || {};
-      const val = validateLLM(parsed);
-      if (!val.ok) {
-        parsed = {}; // keep deterministic only
+      if (linkedinUrl) {
+        const resLi = await scrapeLinkedInPublic(linkedinUrl);
+        liText = resLi.text || "";
+        liStatus = resLi.status || liStatus;
       }
-    }
 
-    // 8) Merge ATS from LLM if strictly better
-    if (
-      !ATS_DETERMINISTIC_ONLY &&
-      parsed.ats_keywords &&
-      Array.isArray(parsed.ats_keywords.matched) &&
-      Array.isArray(parsed.ats_keywords.missing)
-    ) {
-      const kLLM = scoreKeywordsFromATS(parsed.ats_keywords) ?? 0;
-      const kDet = scoreKeywordsFromATS(ats) ?? 0;
-      if (kLLM > kDet) ats = parsed.ats_keywords; // only if you opt-in and LLM is strictly better
-    }
+      // 4) Choose JD based on jd_mode (now that role exists)
+      let jdSelected = null;
+      const jdOrigin = { mode: jdMode, note: "", items: 0 };
 
-    // 9) Build final jd_checklist (merge evidence if present)
-    let jd_checklist = detChecklist.map(({ must, ...r }) => r);
-    if (Array.isArray(parsed.jd_checklist) && parsed.jd_checklist.length) {
-      const mapDet = new Map(detChecklist.map((d) => [d.id, d]));
-      jd_checklist = parsed.jd_checklist.map((r) => {
-        const base = mapDet.get(r.id) || {
-          id: r.id,
-          skill: r.skill,
-          status: r.status,
-          level: r.level,
-          weight: r.weight,
-        };
-        return {
-          id: r.id || base.id,
-          skill: r.skill || base.skill,
-          status: r.status || base.status,
-          level: r.level || base.level,
-          weight: typeof r.weight === "number" ? r.weight : base.weight,
-          evidence_spans: Array.isArray(r.evidence_spans)
-            ? r.evidence_spans.slice(0, 3)
-            : [],
-        };
-      });
-    }
-
-    jd_checklist = sanitizeChecklist(
-      jd_checklist,
-      detChecklist,
-      resumeText || liText,
-      role
-    );
-
-    // 10) Recompute role-fit on merged checklist
-    const roleFitMerged = scoreRoleFit(
-      jd_checklist,
-      jd.weights || {},
-      jd.items || []
-    );
-
-    // 11) Deterministic overall (primary)
-    // const mustPenalty =
-    //   roleFitMerged.mustCoverage < 0.8
-    //     ? (0.8 - roleFitMerged.mustCoverage) * 30
-    //     : 0;
-    // AFTER (quadratic, smaller max, starts only below 0.7 coverage)
-    const MUST_PENALTY_MAX = Number(process.env.MUST_PENALTY_MAX || 12); // pts
-    const MUST_PENALTY_THR = Number(process.env.MUST_PENALTY_THR || 0.7); // coverage
-    const deficit = Math.max(0, MUST_PENALTY_THR - roleFitMerged.mustCoverage);
-    const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit); // gentle near threshold
-    const baseOverall =
-      0.58 * (roleFitMerged.score / 100) + // JD alignment slightly higher
-      0.14 * (techDepthDet.score / 100) +
-      0.12 * (deliveryDet.score / 100) +
-      0.06 * (formattingDet / 100) +
-      0.05 * (impactDet / 100) +
-      0.05 * (keywordsDet / 100);
-
-    let overallDet = clamp01(baseOverall) * 100 - mustPenalty;
-    overallDet = Math.max(0, Math.min(100, Math.round(overallDet)));
-
-    // 12) Conservative LLM blending (resume-first, LI is bonus)
-    const llmOverall =
-      typeof parsed.overall === "number"
-        ? Math.max(0, Math.min(100, parsed.overall))
-        : null;
-    const resumeEvidence = Math.min(8000, (resumeText || "").length) / 8000; // 0..1
-    const liEvidence = liStatus.ok ? 1 : 0; // bonus only
-    const atsCov = (scoreKeywordsFromATS(ats) ?? 0) / 100;
-    const evidenceScore = clamp01(
-      0.45 * resumeEvidence + // RESUME is king
-        0.1 * liEvidence + // LinkedIn is small bonus
-        0.25 * atsCov +
-        0.2 * roleFitMerged.mustCoverage
-    );
-    const llmWeight = llmOverall !== null ? clamp01(0.55 * evidenceScore) : 0; // max 0.55 weight
-    const overallBlended = Math.round(
-      (1 - llmWeight) * overallDet + llmWeight * (llmOverall ?? overallDet)
-    );
-
-    // 13) Score bands / policy mapping
-    // const bandFromScore = (overall, roleFitScore) => {
-    //   if (overall >= 80) return "strong_pass";
-    //   if (overall >= 60) return "normal_pass";
-    //   if (overall >= 50 || roleFitScore >= 60) return "low_pass"; // JD>=60 => at least low pass
-    //   return "fail";
-    // };
-    const bandFromScore = (overall, roleFitScore) => {
-      if (overall >= 78) return "strong_pass";
-      if (overall >= 58) return "normal_pass";
-      if (overall >= 48 || roleFitScore >= 60) return "low_pass";
-      return "fail";
-    };
-    const band = bandFromScore(overallBlended, roleFitMerged.score);
-    const actionMap = {
-      strong_pass: "immediate_hire",
-      normal_pass: "can_be_hire",
-      low_pass: "hold",
-      fail: "reject",
-    };
-    const action = actionMap[band];
-
-    // 14) Confidence calc (explicit %)
-    const passAnchor =
-      band === "fail"
-        ? 50
-        : band === "low_pass"
-        ? 55
-        : band === "normal_pass"
-        ? 65
-        : 80;
-    const scoreMargin = clamp01(Math.abs(overallBlended - passAnchor) / 30);
-    const riskFactor = 1 - clamp01(riskDet.score / 120);
-    const confidence =
-      clamp01(0.4 + 0.4 * evidenceScore + 0.2 * scoreMargin) * riskFactor;
-
-    // 15) Summary bullets (deterministic text)
-    const summary_bullets = [
-      `Overall ${overallBlended}% (${band.replace("_", " ")}), JD fit ${
-        roleFitMerged.score
-      }% with ${pct2(roleFitMerged.mustCoverage)}% must-have coverage.`,
-      `Tech depth ${techDepthDet.score}%, delivery readiness ${deliveryDet.score}%.`,
-      `ATS coverage ${scoreKeywordsFromATS(ats) ?? 0}% (${
-        ats.matched.length
-      } matched / ${ats.missing.length} missing).`,
-      `Formatting ${formattingDet}%, impact signals ${impactDet}%, recency ${recencyDet}%.`,
-      riskDet.score > 0
-        ? `Risk ${riskDet.score} (flags: ${
-            riskDet.flags.map((f) => f.type).join(", ") || "none"
-          }).`
-        : `Low risk profile.`,
-    ];
-
-    // 16) Strengths/Weaknesses from signals (deterministic)
-    let strengths = [];
-    let weaknesses = [];
-
-    // Prefer LLM if it returned useful, non-empty lists
-    const strengthsLLM = Array.isArray(parsed.strengths)
-      ? parsed.strengths.map((s) => String(s).trim()).filter(Boolean)
-      : [];
-    const weaknessesLLM = Array.isArray(parsed.weaknesses)
-      ? parsed.weaknesses.map((s) => String(s).trim()).filter(Boolean)
-      : [];
-
-    // Build deterministic HR insights as fallback or to blend
-    const hrDet = buildDeterministicHRInsights({
-      roleFit: roleFitMerged.score,
-      techDepth: techDepthDet.score,
-      delivery: deliveryDet.score,
-      atsPct: scoreKeywordsFromATS(ats) ?? 0,
-      formatting: formattingDet,
-      impact: impactDet,
-      recency: recencyDet,
-      jd,
-      jd_checklist,
-      ats,
-      resumeText,
-      liText,
-      candidateData,
-    });
-
-    // Merge policy:
-    // - Use LLM if present; top up with deterministic to guarantee min counts.
-    // - Always dedupe and cap list sizes (5 strengths, 4 weaknesses).
-    strengths = uniqKeepOrder([
-      ...(strengthsLLM || []),
-      ...hrDet.strengths,
-    ]).slice(0, 5);
-    weaknesses = uniqKeepOrder([
-      ...(weaknessesLLM || []),
-      ...hrDet.weaknesses,
-    ]).slice(0, 4);
-
-    // As a safety net: never ship zero strengths
-    if (strengths.length < 3) strengths = hrDet.strengths;
-    if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
-
-    // Optional: stash richer HR aids if the LLM provided them
-    const hr_strengths_rich =
-      parsed.extended?.hr_strengths_rich || hrDet.hr_strengths_rich;
-    const hr_weaknesses_rich =
-      parsed.extended?.hr_weaknesses_rich || hrDet.hr_weaknesses_rich;
-    const hr_interview_probes =
-      parsed.extended?.hr_interview_probes || hrDet.hr_interview_probes;
-    const hr_summary = parsed.extended?.hr_summary || hrDet.hr_summary;
-
-    // 17) Score breakdown object
-    const mustIds = new Set(
-      (jd.items || []).filter((i) => i.must).map((i) => i.id)
-    );
-    const detMap = new Map(jd_checklist.map((r) => [r.id, r]));
-    let mustW = 0,
-      mustGot = 0,
-      niceW = 0,
-      niceGot = 0;
-    jd.items.forEach((it) => {
-      const w = jd.weights[it.id] ?? 0.05;
-      const row = detMap.get(it.id);
-      const lvl = row?.status === "Pass" ? LVL[row.level] ?? 0.6 : 0;
-      if (mustIds.has(it.id)) {
-        mustW += w;
-        mustGot += w * lvl;
+      if (jdMode === "upload") {
+        const jdFile = getFile("jd");
+        if (!jdFile) {
+          return res
+            .status(400)
+            .json({ error: "Please upload a JD file (PDF/DOCX)." });
+        }
+        const jdText = await bufferToText(jdFile);
+        const built = buildJDFromText(jdText);
+        if (built.items.length) {
+          jdSelected = built;
+          jdOrigin.items = built.items.length;
+        } else {
+          jdSelected = JD_BANK[role];
+          jdOrigin.note =
+            "Upload parse returned no items; fell back to default JD.";
+          jdOrigin.items = (jdSelected.items || []).length;
+        }
+      } else if (jdMode === "text") {
+        const built = buildJDFromText(jdTextRaw);
+        if (built.items.length) {
+          jdSelected = built;
+          jdOrigin.items = built.items.length;
+        } else {
+          jdSelected = JD_BANK[role];
+          jdOrigin.note = "Empty/invalid JD text; using default JD.";
+          jdOrigin.items = (jdSelected.items || []).length;
+        }
       } else {
-        niceW += w;
-        niceGot += w * lvl;
+        jdSelected = JD_BANK[role];
+        jdOrigin.note = "Using default JD from SYMB role library.";
+        jdOrigin.items = (jdSelected.items || []).length;
       }
-    });
-    const mandatoryPct = mustW ? Math.round((mustGot / mustW) * 100) : 100;
-    const nicePct = niceW ? Math.round((niceGot / niceW) * 100) : 0;
 
-    const t = toLower(candidateData);
-    const softHits = [
-      "communication",
-      "stakeholder",
-      "client",
-      "leadership",
-      "mentored",
-      "presentation",
-      "collaboration",
-    ].reduce((a, k) => a + (t.includes(k) ? 1 : 0), 0);
-    const softSkillsPct = Math.min(100, 25 * softHits); // up to 100
+      // === Core analysis begins here (unchanged logic, but using jdSelected) ===
+      const jd = jdSelected;
 
-    const score_breakdown = {
-      mandatory: mandatoryPct,
-      nice_to_have: nicePct,
-      soft_skills: softSkillsPct,
-      recency: recencyDet,
-      formatting: formattingDet,
-      keywords: scoreKeywordsFromATS(ats) ?? 0,
-      impact: impactDet,
-    };
+      const atsText = atsBaseText(resumeText, liText); // resume-only by default
 
-    // 18) Human-friendly score summary for HR
-    const score_summary = {
-      overall: overallBlended,
-      band,
-      action, // immediate_hire | can_be_hire | hold | reject
-      components: {
-        jd_fit: roleFitMerged.score,
-        tech_depth: techDepthDet.score,
+      // Candidate evidence bundle
+      const candidateData = stripWhitespace(
+        `ROLE: ${role}\n\n=== RESUME ===\n${
+          resumeText || "(none)"
+        }\n\n=== LINKEDIN [${liStatus.method || "none"}] ===\n${
+          liText || "(none)"
+        }`
+      );
+
+      // Deterministic signals + checklist + ATS
+      const signals = buildSignals(atsText, jd);
+      const detChecklist = checklistFromJD(atsText, jd);
+      let ats = buildATSForRole(atsText, jd);
+
+      const formattingDet = scoreFormattingHeuristic(resumeText || liText);
+      const impactDet = scoreImpactHeuristic(candidateData);
+      const recencyDet = estimateRecencyScore(candidateData);
+      const keywordsDet = scoreKeywordsFromATS(ats) ?? 0;
+
+      const roleFitDet = scoreRoleFit(detChecklist, jd.weights || {}, jd.items || []);
+      const techDepthDet = scoreTechDepth(candidateData);
+      const deliveryDet = scoreDelivery(candidateData);
+      const riskDet = scoreRisk({ red_flags: [] }, detChecklist, [], jd.items || []);
+
+      // LLM adjudication (optional)
+      const model = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+      const client = new Groq({ apiKey: process.env.GROQ_API_KEY || "" });
+      let parsed = {};
+      let raw = "";
+      if (process.env.GROQ_API_KEY) {
+        const prompt = buildPromptLLM(role, jd, candidateData, signals);
+        const completion = await client.chat.completions.create({
+          model,
+          temperature: 0.2,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a strict JSON machine. Reply with JSON ONLY and VALID per the provided schema.",
+            },
+            { role: "user", content: prompt },
+          ],
+        });
+        raw = (completion.choices?.[0]?.message?.content || "")
+          .replace(/```json|```/g, "")
+          .trim();
+        parsed = tryParseJSON(raw) || {};
+        const val = validateLLM(parsed);
+        if (!val.ok) parsed = {}; // fallback to deterministic only
+      }
+
+      // Merge ATS from LLM if strictly better
+      if (
+        !ATS_DETERMINISTIC_ONLY &&
+        parsed.ats_keywords &&
+        Array.isArray(parsed.ats_keywords.matched) &&
+        Array.isArray(parsed.ats_keywords.missing)
+      ) {
+        const kLLM = scoreKeywordsFromATS(parsed.ats_keywords) ?? 0;
+        const kDet = scoreKeywordsFromATS(ats) ?? 0;
+        if (kLLM > kDet) ats = parsed.ats_keywords;
+      }
+
+      // Merge checklist (keep deterministic as base)
+      let jd_checklist = detChecklist.map(({ must, ...r }) => r);
+      if (Array.isArray(parsed.jd_checklist) && parsed.jd_checklist.length) {
+        const mapDet = new Map(detChecklist.map((d) => [d.id, d]));
+        jd_checklist = parsed.jd_checklist.map((r) => {
+          const base = mapDet.get(r.id) || {
+            id: r.id,
+            skill: r.skill,
+            status: r.status,
+            level: r.level,
+            weight: r.weight,
+          };
+          return {
+            id: r.id || base.id,
+            skill: r.skill || base.skill,
+            status: r.status || base.status,
+            level: r.level || base.level,
+            weight: typeof r.weight === "number" ? r.weight : base.weight,
+            evidence_spans: Array.isArray(r.evidence_spans)
+              ? r.evidence_spans.slice(0, 3)
+              : [],
+          };
+        });
+      }
+
+      // Sanitize checklist
+      jd_checklist = sanitizeChecklist(
+        jd_checklist,
+        detChecklist,
+        resumeText || liText,
+        role
+      );
+
+      // Recompute role-fit on merged checklist
+      const roleFitMerged = scoreRoleFit(
+        jd_checklist,
+        jd.weights || {},
+        jd.items || []
+      );
+
+      // Overall score (deterministic primary, with must-have penalty)
+      const MUST_PENALTY_MAX = Number(process.env.MUST_PENALTY_MAX || 12); // pts
+      const MUST_PENALTY_THR = Number(process.env.MUST_PENALTY_THR || 0.7); // coverage
+      const deficit = Math.max(0, MUST_PENALTY_THR - roleFitMerged.mustCoverage);
+      const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit);
+      const baseOverall =
+        0.58 * (roleFitMerged.score / 100) +
+        0.14 * (techDepthDet.score / 100) +
+        0.12 * (deliveryDet.score / 100) +
+        0.06 * (formattingDet / 100) +
+        0.05 * (impactDet / 100) +
+        0.05 * (keywordsDet / 100);
+
+      let overallDet = clamp01(baseOverall) * 100 - mustPenalty;
+      overallDet = Math.max(0, Math.min(100, Math.round(overallDet)));
+
+      // Conservative LLM blending
+      const llmOverall =
+        typeof parsed.overall === "number"
+          ? Math.max(0, Math.min(100, parsed.overall))
+          : null;
+      const resumeEvidence = Math.min(8000, (resumeText || "").length) / 8000; // 0..1
+      const liEvidence = liStatus.ok ? 1 : 0;
+      const atsCov = (scoreKeywordsFromATS(ats) ?? 0) / 100;
+      const evidenceScore = clamp01(
+        0.45 * resumeEvidence + 0.1 * liEvidence + 0.25 * atsCov + 0.2 * roleFitMerged.mustCoverage
+      );
+      const llmWeight = llmOverall !== null ? clamp01(0.55 * evidenceScore) : 0;
+      const overallBlended = Math.round(
+        (1 - llmWeight) * overallDet + llmWeight * (llmOverall ?? overallDet)
+      );
+
+      // Bands / action
+      const bandFromScore = (overall, roleFitScore) => {
+        if (overall >= 78) return "strong_pass";
+        if (overall >= 58) return "normal_pass";
+        if (overall >= 48 || roleFitScore >= 60) return "low_pass";
+        return "fail";
+      };
+      const band = bandFromScore(overallBlended, roleFitMerged.score);
+      const actionMap = {
+        strong_pass: "immediate_hire",
+        normal_pass: "can_be_hire",
+        low_pass: "hold",
+        fail: "reject",
+      };
+      const action = actionMap[band];
+
+      // Confidence
+      const passAnchor =
+        band === "fail" ? 50 : band === "low_pass" ? 55 : band === "normal_pass" ? 65 : 80;
+      const scoreMargin = clamp01(Math.abs(overallBlended - passAnchor) / 30);
+      const riskFactor = 1 - clamp01(riskDet.score / 120);
+      const confidence = clamp01(0.4 + 0.4 * evidenceScore + 0.2 * scoreMargin) * riskFactor;
+
+      // Summary bullets
+      const summary_bullets = [
+        `Overall ${overallBlended}% (${band.replace("_", " ")}), JD fit ${roleFitMerged.score}% with ${pct2(
+          roleFitMerged.mustCoverage
+        )}% must-have coverage.`,
+        `Tech depth ${techDepthDet.score}%, delivery readiness ${deliveryDet.score}%.`,
+        `ATS coverage ${scoreKeywordsFromATS(ats) ?? 0}% (${ats.matched.length} matched / ${
+          ats.missing.length
+        } missing).`,
+        `Formatting ${formattingDet}%, impact signals ${impactDet}%, recency ${recencyDet}%.`,
+        riskDet.score > 0
+          ? `Risk ${riskDet.score} (flags: ${riskDet.flags.map((f) => f.type).join(", ") || "none"}).`
+          : `Low risk profile.`,
+      ];
+
+      // Strengths/Weaknesses
+      const strengthsLLM = Array.isArray(parsed.strengths)
+        ? parsed.strengths.map((s) => String(s).trim()).filter(Boolean)
+        : [];
+      const weaknessesLLM = Array.isArray(parsed.weaknesses)
+        ? parsed.weaknesses.map((s) => String(s).trim()).filter(Boolean)
+        : [];
+
+      const hrDet = buildDeterministicHRInsights({
+        roleFit: roleFitMerged.score,
+        techDepth: techDepthDet.score,
         delivery: deliveryDet.score,
-        ats_keywords: scoreKeywordsFromATS(ats) ?? 0,
+        atsPct: scoreKeywordsFromATS(ats) ?? 0,
         formatting: formattingDet,
         impact: impactDet,
         recency: recencyDet,
-        must_have_coverage_pct: pct2(roleFitMerged.mustCoverage),
-        risk: riskDet.score,
-      },
-      top_drivers: (roleFitMerged.drivers || []).slice(0, 5),
-      top_gaps: (roleFitMerged.gaps || []).slice(0, 5),
-    };
+        jd,
+        jd_checklist,
+        ats,
+        resumeText,
+        liText,
+        candidateData,
+      });
 
-    // 19) Decision fields (kept legacy fields but updated to your labels)
-    const decision = band === "fail" ? "Fail" : "Pass";
-    const recommendation = action; // immediate_hire / can_be_hire / hold / reject
+      let strengths = uniqKeepOrder([...(strengthsLLM || []), ...hrDet.strengths]).slice(0, 5);
+      let weaknesses = uniqKeepOrder([...(weaknessesLLM || []), ...hrDet.weaknesses]).slice(0, 4);
+      if (strengths.length < 3) strengths = hrDet.strengths;
+      if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
 
-    // 20) Build response object
-    const response = {
-      score: overallBlended, // overall %
-      decision, // "Pass" | "Fail"
-      recommendation, // new label set
-      confidence_pct: Math.round(confidence * 100), // explicit %
-      jd_checklist, // merged checklist with evidence if any
-      strengths,
-      weaknesses,
-      red_flags: [], // deterministic layer doesn’t infer red flags textually
-      training_needs: (ats.missing || []).slice(0, 6), // quick win items
-      growth_potential:
-        overallBlended >= 80
-          ? "Strong"
-          : overallBlended >= 65
-          ? "Average"
-          : "Limited",
-      role_alignment:
-        roleFitMerged.score >= 75
-          ? "High"
-          : roleFitMerged.score >= 55
-          ? "Medium"
-          : "Low",
+      const hr_strengths_rich =
+        (parsed.extended && parsed.extended.hr_strengths_rich) || hrDet.hr_strengths_rich;
+      const hr_weaknesses_rich =
+        (parsed.extended && parsed.extended.hr_weaknesses_rich) || hrDet.hr_weaknesses_rich;
+      const hr_interview_probes =
+        (parsed.extended && parsed.extended.hr_interview_probes) || hrDet.hr_interview_probes;
+      const hr_summary = (parsed.extended && parsed.extended.hr_summary) || hrDet.hr_summary;
 
-      hire_scores: {
-        role_fit: roleFitMerged.score,
-        tech_depth: techDepthDet.score,
-        delivery: deliveryDet.score,
-        risk: riskDet.score, // lower is better
-      },
+      // Score breakdown
+      const mustIds = new Set((jd.items || []).filter((i) => i.must).map((i) => i.id));
+      const detMap = new Map(jd_checklist.map((r) => [r.id, r]));
+      let mustW = 0,
+        mustGot = 0,
+        niceW = 0,
+        niceGot = 0;
+      jd.items.forEach((it) => {
+        const w = jd.weights[it.id] ?? 0.05;
+        const row = detMap.get(it.id);
+        const lvl = row?.status === "Pass" ? LVL[row.level] ?? 0.6 : 0;
+        if (mustIds.has(it.id)) {
+          mustW += w;
+          mustGot += w * lvl;
+        } else {
+          niceW += w;
+          niceGot += w * lvl;
+        }
+      });
+      const mandatoryPct = mustW ? Math.round((mustGot / mustW) * 100) : 100;
+      const nicePct = niceW ? Math.round((niceGot / niceW) * 100) : 0;
 
-      score_summary, // <-- HR clarity block
+      const t = toLower(candidateData);
+      const softHits = ["communication", "stakeholder", "client", "leadership", "mentored", "presentation", "collaboration"].reduce(
+        (a, k) => a + (t.includes(k) ? 1 : 0),
+        0
+      );
+      const softSkillsPct = Math.min(100, 25 * softHits);
 
-      extended: {
-        candidate_name: parsed.candidate_name || null,
-        contact: parsed.contact || { emails: [], phones: [], location: null },
-        experience_years:
-          parsed.experience_years ?? extractYears(candidateData) ?? null,
-        timeline_note: parsed.timeline_note || null,
-        ats_keywords: ats,
-        score_breakdown,
-        jd_weights: jd.weights || {},
-        jd_raw: Array.isArray(parsed.jd_checklist) ? parsed.jd_checklist : [],
-        summary_bullets,
-        llm_raw: raw || null,
-        interview_recommendation: recommendation, // mirrors new labels
-        confidence: round2(confidence), // 0..1
-        tool_matrix: (() => {
-          const techs = [
-            "react",
-            "vue",
-            "next.js",
-            "node",
-            "express",
-            "nest",
-            "postgres",
-            "mysql",
-            "mongodb",
-            "dynamodb",
-            "aws",
-            "s3",
-            "ec2",
-            "lambda",
-            "cloudfront",
-            "docker",
-            "kubernetes",
-            "jenkins",
-            "github actions",
-            "gitlab ci",
-            "jwt",
-            "oauth",
-            "cypress",
-            "playwright",
-            "selenium",
-          ];
-          const tkset = new Set(tokenize(candidateData));
-          return techs
-            .filter(
-              (t) =>
-                tkset.has(toLower(t.replace(/\s+/g, ""))) ||
-                candidateData.toLowerCase().includes(t)
-            )
-            .map((t) => ({ tech: t, years: null }));
-        })(),
-        recommended_next_steps: (() => {
-          const steps = [];
-          if (roleFitMerged.mustCoverage < 0.9)
-            steps.push(
-              "Address missing MUST-have JD topics with concrete project bullets."
-            );
-          if (deliveryDet.score < 60)
-            steps.push(
-              "Document CI/CD, cloud deploys, monitoring stack with tools and environments."
-            );
-          if ((scoreKeywordsFromATS(ats) ?? 0) < 60)
-            steps.push(
-              "Blend missing JD keywords naturally into experience bullets."
-            );
-          if (impactDet < 40)
-            steps.push(
-              "Add 2–3 quantified outcomes (%, time, cost, throughput)."
-            );
-          if (formattingDet < 60)
-            steps.push(
-              "Use consistent bullets, sections, and dates for readability."
-            );
-          return steps;
-        })(),
-        policy_notes: {
-          decision_bands: {
-            ">=80": "strong_pass → immediate_hire",
-            "60–79": "normal_pass → can_be_hire",
-            "50–59 or JD fit ≥60": "low_pass → hold",
-            "<50": "fail → reject",
-          },
-          linkedIn_optional: true,
-          resume_primary: true,
+      const score_breakdown = {
+        mandatory: mandatoryPct,
+        nice_to_have: nicePct,
+        soft_skills: softSkillsPct,
+        recency: recencyDet,
+        formatting: formattingDet,
+        keywords: scoreKeywordsFromATS(ats) ?? 0,
+        impact: impactDet,
+      };
+
+      // HR summary block
+      const score_summary = {
+        overall: overallBlended,
+        band,
+        action,
+        components: {
+          jd_fit: roleFitMerged.score,
+          tech_depth: techDepthDet.score,
+          delivery: deliveryDet.score,
+          ats_keywords: scoreKeywordsFromATS(ats) ?? 0,
+          formatting: formattingDet,
+          impact: impactDet,
+          recency: recencyDet,
+          must_have_coverage_pct: pct2(roleFitMerged.mustCoverage),
+          risk: riskDet.score,
         },
-      },
+        top_drivers: (roleFitMerged.drivers || []).slice(0, 5),
+        top_gaps: (roleFitMerged.gaps || []).slice(0, 5),
+      };
 
-      _sources: {
-        resume_used: !!resumeText,
-        resume_chars: (resumeText || "").length,
-        linkedin_used: liStatus.used,
-        linkedin_ok: liStatus.ok,
-        linkedin_chars: liStatus.chars,
-        linkedin_reason: liStatus.reason || null,
-        linkedin_method: liStatus.method || null,
-        linkedin_url: linkedinUrl || null,
-        model,
-        version: BUILD_VERSION,
-        latency_ms: Date.now() - started,
-      },
-      hr_strengths_rich,
-      hr_weaknesses_rich,
-      hr_interview_probes,
-      hr_summary,
-    };
+      // Decision
+      const decision = band === "fail" ? "Fail" : "Pass";
+      const recommendation = action; // immediate_hire | can_be_hire | hold | reject
 
-    return res.json(response);
-  } catch (e) {
-    console.error("/api/analyze error", e);
-    return res.status(500).json({ error: e.message || "Server error" });
+      // Build response
+      const response = {
+        score: overallBlended,
+        decision,
+        recommendation,
+        confidence_pct: Math.round(confidence * 100),
+        jd_checklist,
+        strengths,
+        weaknesses,
+        red_flags: [],
+        training_needs: (ats.missing || []).slice(0, 6),
+        growth_potential:
+          overallBlended >= 80 ? "Strong" : overallBlended >= 65 ? "Average" : "Limited",
+        role_alignment:
+          roleFitMerged.score >= 75 ? "High" : roleFitMerged.score >= 55 ? "Medium" : "Low",
+
+        hire_scores: {
+          role_fit: roleFitMerged.score,
+          tech_depth: techDepthDet.score,
+          delivery: deliveryDet.score,
+          risk: riskDet.score,
+        },
+
+        score_summary,
+
+        extended: {
+          jd_origin: jdOrigin, // <- tell frontend which JD was used
+          candidate_name: parsed.candidate_name || null,
+          contact: parsed.contact || { emails: [], phones: [], location: null },
+          experience_years: parsed.experience_years ?? extractYears(candidateData) ?? null,
+          timeline_note: parsed.timeline_note || null,
+          ats_keywords: ats,
+          score_breakdown,
+          jd_weights: jd.weights || {},
+          jd_raw: Array.isArray(parsed.jd_checklist) ? parsed.jd_checklist : [],
+          summary_bullets,
+          llm_raw: raw || null,
+          interview_recommendation: recommendation,
+          confidence: round2(confidence),
+          tool_matrix: (() => {
+            const techs = [
+              "react",
+              "vue",
+              "next.js",
+              "node",
+              "express",
+              "nest",
+              "postgres",
+              "mysql",
+              "mongodb",
+              "dynamodb",
+              "aws",
+              "s3",
+              "ec2",
+              "lambda",
+              "cloudfront",
+              "docker",
+              "kubernetes",
+              "jenkins",
+              "github actions",
+              "gitlab ci",
+              "jwt",
+              "oauth",
+              "cypress",
+              "playwright",
+              "selenium",
+            ];
+            const tkset = new Set(tokenize(candidateData));
+            return techs
+              .filter(
+                (t) =>
+                  tkset.has(toLower(t.replace(/\s+/g, ""))) ||
+                  candidateData.toLowerCase().includes(t)
+              )
+              .map((t) => ({ tech: t, years: null }));
+          })(),
+          recommended_next_steps: (() => {
+            const steps = [];
+            if (roleFitMerged.mustCoverage < 0.9)
+              steps.push("Address missing MUST-have JD topics with concrete project bullets.");
+            if (deliveryDet.score < 60)
+              steps.push("Document CI/CD, cloud deploys, monitoring stack with tools.");
+            if ((scoreKeywordsFromATS(ats) ?? 0) < 60)
+              steps.push("Blend missing JD keywords naturally into experience bullets.");
+            if (impactDet < 40)
+              steps.push("Add 2–3 quantified outcomes (%, time, cost, throughput).");
+            if (formattingDet < 60)
+              steps.push("Use consistent bullets, sections, and dates for readability.");
+            return steps;
+          })(),
+          policy_notes: {
+            decision_bands: {
+              ">=80": "strong_pass → immediate_hire",
+              "60–79": "normal_pass → can_be_hire",
+              "50–59 or JD fit ≥60": "low_pass → hold",
+              "<50": "fail → reject",
+            },
+            linkedIn_optional: true,
+            resume_primary: true,
+          },
+        },
+
+        _sources: {
+          resume_used: !!resumeText,
+          resume_chars: (resumeText || "").length,
+          linkedin_used: liStatus.used,
+          linkedin_ok: liStatus.ok,
+          linkedin_chars: liStatus.chars,
+          linkedin_reason: liStatus.reason || null,
+          linkedin_method: liStatus.method || null,
+          linkedin_url: linkedinUrl || null,
+          model,
+          version: BUILD_VERSION,
+          latency_ms: Date.now() - started,
+          jd_mode: jdMode,
+          jd_items_count: jdOrigin.items || (jd.items || []).length,
+        },
+
+        hr_strengths_rich,
+        hr_weaknesses_rich,
+        hr_interview_probes,
+        hr_summary,
+      };
+
+      return res.json(response);
+    } catch (e) {
+      console.error("/api/analyze error", e);
+      return res.status(500).json({ error: e.message || "Server error" });
+    }
   }
-});
+);
+
 
 /* --------------------------------- Startup -------------------------------- */
 app.listen(PORT, () => {
