@@ -47,8 +47,9 @@ const ROLE_ANCHOR_REGEX = {
 };
 
 // --- knobs ---
-const MIN_RESUME_LEN_FOR_INSIGHTS =
-  Number(process.env.MIN_RESUME_LEN_FOR_INSIGHTS || 200);
+const MIN_RESUME_LEN_FOR_INSIGHTS = Number(
+  process.env.MIN_RESUME_LEN_FOR_INSIGHTS || 200
+);
 
 // true if resume is long enough AND plausibly matches the chosen role
 function resumeValidForInsights(resumeText, role, detChecklist = []) {
@@ -79,14 +80,18 @@ function buildNextStepsDeterministic({
   roleFitMerged,
 }) {
   const steps = [];
-  const mustSet = new Set((jd.items || []).filter((i) => i.must).map((i) => i.id));
+  const mustSet = new Set(
+    (jd.items || []).filter((i) => i.must).map((i) => i.id)
+  );
   const failedMusts = (jd_checklist || [])
     .filter((r) => r.status !== "Pass" && mustSet.has(r.id))
     .map((r) => r.skill || r.id);
 
   if (failedMusts.length)
     steps.push(
-      `Address missing MUSTs: ${failedMusts.slice(0, 4).join(", ")} (add concrete bullets/projects).`
+      `Address missing MUSTs: ${failedMusts
+        .slice(0, 4)
+        .join(", ")} (add concrete bullets/projects).`
     );
 
   const atsPct = scoreKeywordsFromATS(ats) ?? 0;
@@ -103,13 +108,19 @@ function buildNextStepsDeterministic({
     );
 
   if (impactDet < 40)
-    steps.push("Add 2–3 quantified outcomes (%, time, cost, throughput) per project.");
+    steps.push(
+      "Add 2–3 quantified outcomes (%, time, cost, throughput) per project."
+    );
 
   if (formattingDet < 60)
-    steps.push("Standardize headings, bullets, and dates; keep it concise and scannable.");
+    steps.push(
+      "Standardize headings, bullets, and dates; keep it concise and scannable."
+    );
 
   if (!steps.length && roleFitMerged.score < 70)
-    steps.push("Tighten bullets to map directly to the JD items with evidence.");
+    steps.push(
+      "Tighten bullets to map directly to the JD items with evidence."
+    );
 
   return steps.slice(0, 6);
 }
@@ -130,7 +141,9 @@ async function buildNextStepsAI({
   roleFitMerged,
 }) {
   try {
-    const mustSet = new Set((jd.items || []).filter((i) => i.must).map((i) => i.id));
+    const mustSet = new Set(
+      (jd.items || []).filter((i) => i.must).map((i) => i.id)
+    );
     const failedMusts = (jd_checklist || [])
       .filter((r) => r.status !== "Pass" && mustSet.has(r.id))
       .map((r) => r.skill || r.id);
@@ -174,12 +187,14 @@ ${JSON.stringify(data, null, 2)}`;
       .trim();
     const parsed = tryParseJSON(raw);
     const out = Array.isArray(parsed?.steps) ? parsed.steps : [];
-    return out.map((s) => String(s).trim()).filter(Boolean).slice(0, 6);
+    return out
+      .map((s) => String(s).trim())
+      .filter(Boolean)
+      .slice(0, 6);
   } catch {
     return [];
   }
 }
-
 
 function atsBaseText(resumeText, liText) {
   return stripWhitespace(
@@ -265,6 +280,12 @@ function tagMatch(tag, tokens, rawText, role) {
   const tokenHit = tokens.has(joinTok(norm)) || tokens.has(norm);
   const phraseHit = hasWhole(rawText, norm);
   let hit = tokenHit || phraseHit;
+
+  // Global contextual gate (applies to EVERY role)
+  if (hit) {
+    const allow = contextualAllowForRole(norm, rawText.toLowerCase(), role);
+    if (allow === false) return false;
+  }
 
   if (ATS_CONTEXT_MODE === "naive") return hit;
 
@@ -368,118 +389,6 @@ function tagMatch(tag, tokens, rawText, role) {
   return hit;
 }
 
-// function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
-//   const raw = String(candidateText || "").toLowerCase();
-//   const detMap = new Map(detChecklist.map(r => [r.id, r]));
-//   const LVL_ORDER = { Weak: 0, Medium: 1, Strong: 2 };
-//   const LVL_BY_IDX = ["Weak","Medium","Strong"];
-
-//   return (jd_checklist || []).map(row => {
-//     const det = detMap.get(row.id);
-//     // Start from LLM row, but clamp to deterministic
-//     let status = det ? det.status : row.status;
-//     let level  = det ? det.level  : row.level;
-
-//     // If deterministic Fail, force Fail+Weak
-//     if (det && det.status === "Fail") {
-//       status = "Fail";
-//       level  = "Weak";
-//     } else if (det && det.status === "Pass") {
-//       // If deterministic Pass, allow only same-or-lower level than deterministic
-//       const detIdx = LVL_ORDER[det.level] ?? 0;
-//       const llmIdx = LVL_ORDER[row.level] ?? detIdx;
-//       level = LVL_BY_IDX[Math.min(detIdx, llmIdx)];
-//     }
-
-//     // Evidence must be literal substring of candidate text
-//     const evidence_spans = (row.evidence_spans || []).filter(
-//       s => s && s.text && raw.includes(String(s.text).toLowerCase())
-//     ).slice(0, 3);
-
-//     // Extra guard for HR items to prevent dev “end-to-end/pipeline” collisions
-//     if (role === "hr_recruiter" && status === "Pass" &&
-//         (row.id === "full_cycle" || row.id === "it_recruitment_experience")) {
-//       const hrSignal = /\b(recruit(ment|er)|candidate|screen(ing)?|shortlist|offer|negotiat(e|ion)|sourcing)\b/i.test(raw);
-//       if (!hrSignal) { status = "Fail"; level = "Weak"; }
-//     }
-
-//     return { ...row, status, level, evidence_spans };
-//   });
-// }
-
-// function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
-//   const raw = String(candidateText || "").toLowerCase();
-//   const detMap = new Map(detChecklist.map(r => [r.id, r]));
-//   const LVL_ORDER = { Weak: 0, Medium: 1, Strong: 2 };
-//   const LVL_BY_IDX = ["Weak","Medium","Strong"];
-
-//   // “Looks like role” anchors (lightweight)
-//   const ROLE_ANCHORS = {
-//     hr_recruiter: /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
-//     software_engineer: /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
-//     qa_engineer: /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
-//     project_manager: /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
-//     business_analyst: /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
-//     tech_lead: /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
-//     drupal_developer: /\b(drupal|twig|drush|module|hook_|paragraphs)\b/i,
-//   };
-//   const looksLikeRole = ROLE_ANCHORS[role] ? ROLE_ANCHORS[role].test(raw) : true;
-
-//   // HR false-positive collision from DevOps “pipeline”
-//   const DEVOPS_NEAR = /\b(ci\/?cd|jenkins|github actions?|gitlab ci|build|deploy|docker|kubernetes)\b/i;
-
-//   return (jd_checklist || []).map(row => {
-//     const det = detMap.get(row.id);
-
-//     // Start from deterministic baseline
-//     let status = det ? det.status : row.status;
-//     let level  = det ? det.level  : row.level;
-
-//     if (det && det.status === "Fail") {
-//       // keep Fail (LLM can't upgrade)
-//       status = "Fail";
-//       level  = "Weak";
-//     } else if (det && det.status === "Pass") {
-//       // NEVER worse than deterministic: lock to deterministic level
-//       status = "Pass";
-//       level  = det.level;
-//     } else {
-//       // no deterministic row; clamp LLM level to valid range
-//       const llmIdx = LVL_ORDER[row.level] ?? 0;
-//       level = LVL_BY_IDX[Math.max(0, Math.min(2, llmIdx))];
-//     }
-
-//     // keep only literal evidence from candidate text
-//     const evidence_spans = (row.evidence_spans || [])
-//       .filter(s => s && s.text && raw.includes(String(s.text).toLowerCase()))
-//       .slice(0, 3);
-//     const hasEvidence = evidence_spans.length > 0;
-
-//     // Cross-role guard: apply **only when deterministic was Fail or missing**
-//     if ((!det || det.status === "Fail") && status === "Pass" && !looksLikeRole && !hasEvidence) {
-//       status = "Fail";
-//       level  = "Weak";
-//     }
-
-//     // Extra HR guard (only when deterministic was Fail or missing)
-//     if (role === "hr_recruiter" && (!det || det.status === "Fail") && status === "Pass" &&
-//        (row.id === "full_cycle" || row.id === "it_recruitment_experience" ||
-//         row.id === "sourcing_platforms" || row.id === "ats_tools")) {
-
-//       const hasHR = ROLE_ANCHORS.hr_recruiter.test(raw);
-//       const devopsCollision =
-//         /\b(pipeline|end-?to-?end|ownership)\b/i.test(raw) && DEVOPS_NEAR.test(raw);
-
-//       if (!hasHR || devopsCollision) {
-//         status = "Fail";
-//         level  = "Weak";
-//       }
-//     }
-
-//     return { ...row, status, level, evidence_spans };
-//   });
-// }
-
 function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
   const raw = String(candidateText || "").toLowerCase();
   const rawNorm = raw.replace(/\s+/g, " ").trim();
@@ -487,17 +396,6 @@ function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
   const detMap = new Map(detChecklist.map((r) => [r.id, r]));
   const LVL_ORDER = { Weak: 0, Medium: 1, Strong: 2 };
   const LVL_BY_IDX = ["Weak", "Medium", "Strong"];
-
-  // Light role anchors (soft gating)
-  // const ROLE_ANCHORS = {
-  //   hr_recruiter: /\b(recruit(?:ment|er)|candidate|sourc(?:ing|e)|screen(?:ing)?|shortlist|offer|negotiat(?:e|ion)|boolean search|linkedin recruiter|naukri|indeed|greenhouse|lever|zoho)\b/i,
-  //   software_engineer: /\b(react|vue|angular|next|node|express|typescript|javascript|java|python|api|graphql|sql|mongodb|postgres|aws|docker|kubernetes)\b/i,
-  //   qa_engineer: /\b(qa|test(?:ing)?|automation|selenium|cypress|playwright|defect|bug|testrail|postman|regression)\b/i,
-  //   project_manager: /\b(plan|scope|gantt|milestone|roadmap|stakeholder|status report|risk|raid|budget)\b/i,
-  //   business_analyst: /\b(requirements|user stories|brd|frd|acceptance criteria|figma|wireframe|stakeholder)\b/i,
-  //   tech_lead: /\b(architecture|architected|design|code review|mentoring|roadmap|scalable|microservices)\b/i,
-  //   drupal_developer: /\b(drupal|twig|drush|module|hook_|paragraphs)\b/i,
-  // };
 
   const ROLE_ANCHORS = {
     hr_recruiter:
@@ -529,9 +427,9 @@ function sanitizeChecklist(jd_checklist, detChecklist, candidateText, role) {
 
   // How we recognize if the resume *looks like* the selected role
 
-
-  const looksLikeRole = ROLE_ANCHOR_REGEX[role] ? ROLE_ANCHOR_REGEX[role].test(raw) : true;
-
+  const looksLikeRole = ROLE_ANCHOR_REGEX[role]
+    ? ROLE_ANCHOR_REGEX[role].test(raw)
+    : true;
 
   // HR false-positive collision from DevOps “pipeline”
   const DEVOPS_NEAR =
@@ -901,11 +799,355 @@ function buildDeterministicHRInsights({
 }
 
 function slugifyId(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "")
-    .slice(0, 40) || "item";
+  return (
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 40) || "item"
+  );
+}
+
+// --- Detailed formatting score with parts
+function scoreFormattingHeuristicDetailed(text) {
+  const raw = String(text || "");
+  if (!raw)
+    return {
+      score: 0,
+      parts: {
+        bullets: 0,
+        lines: 0,
+        bulletRatio: 0,
+        sections: 0,
+        secScore: 0,
+        dates: 0,
+        dateScore: 0,
+      },
+    };
+  const lines = raw.split(/\n/);
+  const bullets = lines.filter((l) =>
+    /^\s*(?:[-•●▪︎*]|[0-9]+\.)\s+/.test(l)
+  ).length;
+  const sectionsHits =
+    raw.match(
+      /\b(Experience|Work|Projects|Education|Skills|Summary|Certifications)\b/gi
+    ) || [];
+  const datesHits = raw.match(/\b(20\d{2}|19\d{2})\b/g) || [];
+  const bulletRatio = clamp01(bullets / Math.max(lines.length, 1));
+  const secScore = clamp01(sectionsHits.length / 6);
+  const dateScore = clamp01(datesHits.length / 12);
+  const score = Math.round(
+    (0.5 * bulletRatio + 0.3 * secScore + 0.2 * dateScore) * 100
+  );
+  return {
+    score,
+    parts: {
+      bullets,
+      lines: lines.length,
+      bulletRatio: +bulletRatio.toFixed(2),
+      sections: sectionsHits.length,
+      secScore: +secScore.toFixed(2),
+      dates: datesHits.length,
+      dateScore: +dateScore.toFixed(2),
+      formula: "score = 100*(0.5*bulletRatio + 0.3*secScore + 0.2*dateScore)",
+    },
+  };
+}
+
+// --- Detailed impact score with parts
+function scoreImpactHeuristicDetailed(text) {
+  const t = String(text || "");
+  const metricsCount = (
+    t.match(/\b(\d+%|\d+ms|\d+s|\d+x|x\d|\$[\d,]+)\b/gi) || []
+  ).length;
+  const strongVerbsCount = (
+    t.match(new RegExp("\\b(" + STRONG_VERBS.join("|") + ")\\b", "gi")) || []
+  ).length;
+  const metricsTerm = Math.min(metricsCount, 12);
+  const verbsTerm = Math.min(strongVerbsCount, 15);
+  const raw = clamp01(0.06 * metricsTerm + 0.04 * verbsTerm);
+  return {
+    score: Math.round(raw * 100),
+    parts: {
+      metricsCount,
+      metricsCapped: metricsTerm,
+      strongVerbsCount,
+      verbsCapped: verbsTerm,
+      formula: "score = 100*clamp(0.06*min(metrics,12) + 0.04*min(verbs,15))",
+    },
+  };
+}
+
+// --- Which tech keywords fired per area (for tech depth transparency)
+function techDepthSignals(text) {
+  const t = (text || "").toLowerCase();
+  const pick = (arr) => arr.filter((k) => t.includes(k));
+  return {
+    frontend: pick([
+      "react",
+      "vue",
+      "next",
+      "ssr",
+      "lazy load",
+      "bundle",
+      "redux",
+      "zustand",
+    ]),
+    backend: pick(["node", "express", "nest", "api", "microservice", "grpc"]),
+    databases: pick([
+      "postgres",
+      "mysql",
+      "mongodb",
+      "dynamodb",
+      "index",
+      "query",
+      "sql",
+    ]),
+    cloud: pick([
+      "aws",
+      "ec2",
+      "s3",
+      "lambda",
+      "cloudfront",
+      "api gateway",
+      "docker",
+      "kubernetes",
+    ]),
+    security: pick(["jwt", "oauth", "oauth2", "session", "owasp"]),
+  };
+}
+
+// --- Per-JD item contribution to JD-fit and to overall points (weight 0.58)
+function perJDContrib(jd_checklist, jd) {
+  const totalW =
+    (jd.items || []).reduce((s, it) => s + (jd.weights[it.id] ?? 0.05), 0) || 1;
+  const mustMap = new Map((jd.items || []).map((it) => [it.id, !!it.must]));
+  return jd_checklist
+    .map((row) => {
+      const w = jd.weights[row.id] ?? 0.05;
+      const mult = row.status === "Pass" ? LVL[row.level] ?? 0.6 : 0; // 1.0 / 0.8 / 0.6 / 0
+      const jdFitSharePct = (100 * (w * mult)) / totalW; // how much this row contributes to JD-fit %
+      const overallPoints = +(0.58 * jdFitSharePct).toFixed(2); // how many overall points it adds
+      return {
+        id: row.id,
+        label: row.skill,
+        must: mustMap.get(row.id) || false,
+        status: row.status,
+        level: row.level,
+        weight: +w.toFixed(3),
+        jd_fit_share_pct: +jdFitSharePct.toFixed(2),
+        overall_points: overallPoints,
+      };
+    })
+    .sort((a, b) => b.overall_points - a.overall_points);
+}
+
+// --- Detailed delivery parts (mirrors scoreDelivery math)
+function deliveryParts(text) {
+  const t = (text || "").toLowerCase();
+  const has = (...ks) => ks.some((k) => t.includes(k));
+  const ci = has("ci/cd", "github actions", "jenkins", "gitlab ci", "pipeline");
+  const cloud = has(
+    "aws",
+    "gcp",
+    "azure",
+    "cloudfront",
+    "s3",
+    "lambda",
+    "api gateway",
+    "ec2",
+    "docker",
+    "kubernetes"
+  );
+  const agile = has(
+    "scrum",
+    "jira",
+    "stand-up",
+    "standup",
+    "sprint",
+    "retrospective"
+  );
+  const monitoring = has(
+    "datadog",
+    "new relic",
+    "grafana",
+    "prometheus",
+    "sentry",
+    "logging"
+  );
+  const ownership = (
+    t.match(/\b(delivered|owned|led|shipped|launched)\b/gi) || []
+  ).length;
+
+  const parts = [
+    { key: "ci_cd", label: "CI/CD present", yes: ci, pct: ci ? 25 : 0 },
+    { key: "cloud", label: "Cloud/Deploys", yes: cloud, pct: cloud ? 25 : 0 },
+    { key: "agile", label: "Agile/Jira", yes: agile, pct: agile ? 15 : 0 },
+    {
+      key: "monitoring",
+      label: "Monitoring/Obs",
+      yes: monitoring,
+      pct: monitoring ? 15 : 0,
+    },
+    {
+      key: "ownership",
+      label: "Ownership verbs",
+      yes: ownership > 0,
+      count: ownership,
+      pct: Math.min(20, ownership * 5),
+    },
+  ];
+  const score = Math.round(parts.reduce((s, p) => s + p.pct, 0));
+  return { score, parts };
+}
+
+function buildScoreExplainDetailed({
+  jd,
+  jd_checklist,
+  roleFitPct,
+  techDepthDet,
+  deliveryDet,
+  formattingDetDetail,
+  impactDetDetail,
+  keywordsPct,
+  ats,
+  mustCoverage,
+  mustPenalty,
+  mustPenaltyThr,
+  llmOverall,
+  llmWeight,
+  overallDet,
+  overallBlended,
+  candidateData,
+}) {
+  // Component points BEFORE penalty (same weights you use in overall)
+  const components = [
+    {
+      key: "jd_fit",
+      label: "JD Fit",
+      weight: 0.58,
+      raw: roleFitPct,
+      points: +(0.58 * roleFitPct).toFixed(1),
+    },
+    {
+      key: "tech_depth",
+      label: "Technical Depth",
+      weight: 0.14,
+      raw: techDepthDet.score,
+      points: +(0.14 * techDepthDet.score).toFixed(1),
+    },
+    {
+      key: "delivery",
+      label: "Delivery Readiness",
+      weight: 0.12,
+      raw: deliveryDet.score,
+      points: +(0.12 * deliveryDet.score).toFixed(1),
+    },
+    {
+      key: "formatting",
+      label: "Formatting",
+      weight: 0.06,
+      raw: formattingDetDetail.score,
+      points: +(0.06 * formattingDetDetail.score).toFixed(1),
+    },
+    {
+      key: "impact",
+      label: "Impact Signals",
+      weight: 0.05,
+      raw: impactDetDetail.score,
+      points: +(0.05 * impactDetDetail.score).toFixed(1),
+    },
+    {
+      key: "keywords",
+      label: "ATS Keywords",
+      weight: 0.05,
+      raw: keywordsPct,
+      points: +(0.05 * keywordsPct).toFixed(1),
+    },
+  ];
+  const components_total = +components
+    .reduce((s, c) => s + c.points, 0)
+    .toFixed(1);
+
+  // Per-component drilldowns
+  const jd_items = perJDContrib(jd_checklist, jd);
+
+  const techSignals = techDepthSignals(candidateData);
+  const tech_area_weights = {
+    frontend: 0.22,
+    backend: 0.22,
+    databases: 0.18,
+    cloud: 0.22,
+    security: 0.16,
+  };
+  const tech_area = (techDepthDet.core_stack || [])
+    .map((a) => {
+      const pct = Math.round(100 * (a.value * tech_area_weights[a.area]));
+      const overallPts = +(0.14 * pct).toFixed(2);
+      return {
+        area: a.area,
+        level: a.level,
+        value: a.value,
+        pct_of_tech_depth: pct,
+        overall_points: overallPts,
+        signals: techSignals[a.area] || [],
+      };
+    })
+    .sort((a, b) => b.overall_points - a.overall_points);
+
+  const delivery_detail = deliveryParts(candidateData);
+
+  // Penalty details
+  const penalties = [];
+  if (mustPenalty > 0) {
+    const failedMusts = jd_checklist
+      .filter(
+        (r) =>
+          r.status !== "Pass" &&
+          (jd.items || []).find((it) => it.id === r.id)?.must
+      )
+      .map((r) => ({ id: r.id, label: r.skill }));
+    penalties.push({
+      reason: "Missing must-have coverage",
+      points: mustPenalty,
+      details: `Coverage ${Math.round(
+        mustCoverage * 100
+      )}% < threshold ${Math.round(mustPenaltyThr * 100)}%`,
+      failed_musts: failedMusts,
+    });
+  }
+  const penalties_total = penalties.reduce((s, p) => s + p.points, 0);
+
+  // LLM blend
+  const llm_adjustment = {
+    enabled: llmOverall !== null && llmWeight > 0,
+    llm_overall: llmOverall,
+    weight_pct: Math.round(llmWeight * 100),
+    delta: +(overallBlended - overallDet).toFixed(1),
+  };
+
+  return {
+    formula: "overall = blend( sum(weight*component) − mustPenalty )",
+    components,
+    components_total,
+    drilldowns: {
+      jd_fit: { items: jd_items },
+      tech_depth: { areas: tech_area, area_weights: tech_area_weights },
+      delivery: delivery_detail, // shows each part’s % and count
+      formatting: formattingDetDetail, // shows bullets/sections/dates
+      impact: impactDetDetail, // shows metrics & verbs
+      keywords: {
+        coverage_pct: keywordsPct,
+        matched: ats.matched,
+        missing: ats.missing,
+      },
+    },
+    penalties,
+    penalties_total,
+    after_penalty: +(components_total - penalties_total).toFixed(1),
+    llm_adjustment,
+    final_overall: overallBlended,
+  };
 }
 
 // Env knob (tweak without code changes)
@@ -927,7 +1169,6 @@ function slugifyId(s) {
 //   // Accept if: anchors match OR at least 2 checklist passes OR 20% coverage
 //   return looksLikeRole || passCount >= 2 || coverage >= 0.2;
 // }
-
 
 // Parse freeform JD text into { weights, items[] } compatible with JD_BANK
 // function buildJDFromText(jdText) {
@@ -983,7 +1224,6 @@ function slugifyId(s) {
 //   return { weights, items };
 // }
 
-
 /* ----------------------------- Security & JSON ---------------------------- */
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(morgan("tiny"));
@@ -1038,6 +1278,425 @@ const ROLE_ALIASES = {
   "devops engineer": "aws_devops_engineer",
   "aws devops": "aws_devops_engineer",
 };
+
+// ====================== ROLE BLUEPRINTS: per-role axes =======================
+// Each role defines its own axes (fields) and how to score them.
+// kind: "jd_item" → score comes from jd_checklist row (Strong=100/Medium=80/Weak=60/Fail/none=0)
+// kind: "heuristic" → custom compute() gets the metrics bag from analyze step (formatting, impact, ats, delivery parts, etc.)
+const ROLE_BLUEPRINTS = {
+  /* -------------------- Frontend Engineer (React) -------------------- */
+  frontend_engineer_react: {
+    // overall is normalized by sum of axis weights
+    axes: {
+      react_core: {
+        label: "React Core",
+        kind: "jd_item",
+        itemId: "react_core",
+        weight: 0.18,
+      },
+      state_tooling: {
+        label: "State & Tooling",
+        kind: "jd_item",
+        itemId: "state_tooling",
+        weight: 0.13,
+      },
+      ts_testing: {
+        label: "TypeScript & Testing",
+        kind: "jd_item",
+        itemId: "typescript_testing",
+        weight: 0.12,
+      },
+      next_perf: {
+        label: "Next.js & Performance",
+        kind: "jd_item",
+        itemId: "next_ssr_perf",
+        weight: 0.13,
+      },
+      ui_css: {
+        label: "UI Systems & CSS",
+        kind: "jd_item",
+        itemId: "ui_css",
+        weight: 0.09,
+      },
+      api_integration: {
+        label: "API Integration",
+        kind: "jd_item",
+        itemId: "api_integration",
+        weight: 0.13,
+      },
+      ci_cd: {
+        label: "CI/CD & Quality Gates",
+        kind: "jd_item",
+        itemId: "ci_cd",
+        weight: 0.11,
+      },
+      accessibility: {
+        label: "Accessibility",
+        kind: "jd_item",
+        itemId: "accessibility",
+        weight: 0.11,
+      },
+    },
+    mustPenalty: { max: 10, thr: 0.7 },
+  },
+
+  /* -------------------- Backend Engineer (Node.js) ------------------- */
+  backend_engineer_node: {
+    axes: {
+      node_core: {
+        label: "Node Core",
+        kind: "jd_item",
+        itemId: "node_core",
+        weight: 0.18,
+      },
+      api_design: {
+        label: "API Design",
+        kind: "jd_item",
+        itemId: "api_design",
+        weight: 0.14,
+      },
+      databases: {
+        label: "Databases/ORM",
+        kind: "jd_item",
+        itemId: "databases",
+        weight: 0.18,
+      },
+      auth_security: {
+        label: "Auth & Security",
+        kind: "jd_item",
+        itemId: "auth_security",
+        weight: 0.16,
+      },
+      testing_obs: {
+        label: "Testing/Observability",
+        kind: "jd_item",
+        itemId: "testing_obs",
+        weight: 0.12,
+      },
+      cloud_devops: {
+        label: "Cloud & DevOps",
+        kind: "jd_item",
+        itemId: "cloud_devops",
+        weight: 0.12,
+      },
+      architecture: {
+        label: "Architecture/Scale",
+        kind: "jd_item",
+        itemId: "architecture",
+        weight: 0.1,
+      },
+    },
+    mustPenalty: { max: 12, thr: 0.7 },
+  },
+
+  /* -------------------- Backend Engineer (Python) -------------------- */
+  backend_engineer_python: {
+    axes: {
+      py_web: {
+        label: "Python Web",
+        kind: "jd_item",
+        itemId: "py_web",
+        weight: 0.18,
+      },
+      api_design: {
+        label: "API Design",
+        kind: "jd_item",
+        itemId: "api_design",
+        weight: 0.14,
+      },
+      databases: {
+        label: "Databases/ORM",
+        kind: "jd_item",
+        itemId: "databases",
+        weight: 0.18,
+      },
+      auth_security: {
+        label: "Auth & Security",
+        kind: "jd_item",
+        itemId: "auth_security",
+        weight: 0.16,
+      },
+      testing_obs: {
+        label: "Testing/Observability",
+        kind: "jd_item",
+        itemId: "testing_obs",
+        weight: 0.12,
+      },
+      cloud_devops: {
+        label: "Cloud & DevOps",
+        kind: "jd_item",
+        itemId: "cloud_devops",
+        weight: 0.12,
+      },
+      async_tasks: {
+        label: "Async/Background Jobs",
+        kind: "jd_item",
+        itemId: "async_tasks",
+        weight: 0.1,
+      },
+    },
+    mustPenalty: { max: 12, thr: 0.7 },
+  },
+
+  /* ----------------------- AWS / DevOps Engineer --------------------- */
+  aws_devops_engineer: {
+    axes: {
+      aws_core: {
+        label: "AWS Core",
+        kind: "jd_item",
+        itemId: "aws_core",
+        weight: 0.2,
+      },
+      iac: {
+        label: "Infrastructure as Code",
+        kind: "jd_item",
+        itemId: "iac",
+        weight: 0.16,
+      },
+      ci_cd: { label: "CI/CD", kind: "jd_item", itemId: "ci_cd", weight: 0.16 },
+      containers: {
+        label: "Containers/Orch",
+        kind: "jd_item",
+        itemId: "containers",
+        weight: 0.16,
+      },
+      observability: {
+        label: "Observability",
+        kind: "jd_item",
+        itemId: "observability",
+        weight: 0.12,
+      },
+      networking_security: {
+        label: "Net/Security",
+        kind: "jd_item",
+        itemId: "networking_security",
+        weight: 0.1,
+      },
+      scripting_automation: {
+        label: "Scripting/Automation",
+        kind: "jd_item",
+        itemId: "scripting_automation",
+        weight: 0.06,
+      },
+      cost_ha: {
+        label: "Cost/HA",
+        kind: "jd_item",
+        itemId: "cost_ha",
+        weight: 0.04,
+      },
+    },
+    mustPenalty: { max: 14, thr: 0.75 },
+  },
+
+  /* --------------------------- HR Recruiter -------------------------- */
+  hr_recruiter: {
+    axes: {
+      it_recruitment_experience: {
+        label: "IT Recruitment Experience",
+        kind: "jd_item",
+        itemId: "it_recruitment_experience",
+        weight: 0.22,
+      },
+      full_cycle: {
+        label: "Full-cycle Ownership",
+        kind: "jd_item",
+        itemId: "full_cycle",
+        weight: 0.2,
+      },
+      sourcing_platforms: {
+        label: "Sourcing Platforms",
+        kind: "jd_item",
+        itemId: "sourcing_platforms",
+        weight: 0.14,
+      },
+      ats_tools: {
+        label: "ATS Tools",
+        kind: "jd_item",
+        itemId: "ats_tools",
+        weight: 0.14,
+      },
+      stakeholder_hiring_mgr: {
+        label: "Hiring Manager Partnering",
+        kind: "jd_item",
+        itemId: "stakeholder_hiring_mgr",
+        weight: 0.1,
+      },
+      metrics_reporting: {
+        label: "Metrics/Reporting",
+        kind: "jd_item",
+        itemId: "metrics_reporting",
+        weight: 0.08,
+      },
+      employer_branding: {
+        label: "Employer Branding",
+        kind: "jd_item",
+        itemId: "employer_branding",
+        weight: 0.06,
+      },
+      communication: {
+        label: "Comm/Candidate Exp",
+        kind: "jd_item",
+        itemId: "communication",
+        weight: 0.06,
+      },
+    },
+    mustPenalty: { max: 8, thr: 0.7 },
+  },
+
+  /* --------------------------- Project Manager ----------------------- */
+  project_manager: {
+    axes: {
+      planning_execution: {
+        label: "Planning/Execution",
+        kind: "jd_item",
+        itemId: "planning_execution",
+        weight: 0.18,
+      },
+      team_management: {
+        label: "Team Management",
+        kind: "jd_item",
+        itemId: "team_management",
+        weight: 0.14,
+      },
+      stakeholder_comm: {
+        label: "Stakeholder/Comm",
+        kind: "jd_item",
+        itemId: "stakeholder_comm",
+        weight: 0.14,
+      },
+      risk_issue: {
+        label: "Risk/Issue (RAID)",
+        kind: "jd_item",
+        itemId: "risk_issue",
+        weight: 0.12,
+      },
+      quality_delivery: {
+        label: "Quality/Delivery",
+        kind: "jd_item",
+        itemId: "quality_delivery",
+        weight: 0.12,
+      },
+      agile_scrum: {
+        label: "Agile/Scrum",
+        kind: "jd_item",
+        itemId: "agile_scrum",
+        weight: 0.1,
+      },
+      tools_pm: {
+        label: "PM Tools",
+        kind: "jd_item",
+        itemId: "tools_pm",
+        weight: 0.1,
+      },
+      certifications: {
+        label: "Certifications",
+        kind: "jd_item",
+        itemId: "certifications",
+        weight: 0.1,
+      },
+    },
+    mustPenalty: { max: 10, thr: 0.7 },
+  },
+
+  /* --------------------------- Business Analyst ---------------------- */
+  business_analyst: {
+    axes: {
+      communication_client: {
+        label: "Comm/Client",
+        kind: "jd_item",
+        itemId: "communication_client",
+        weight: 0.16,
+      },
+      requirements_docs: {
+        label: "Reqs & Docs (BRD/FRD)",
+        kind: "jd_item",
+        itemId: "requirements_docs",
+        weight: 0.2,
+      },
+      wireframes_figma: {
+        label: "Wireframes/Figma",
+        kind: "jd_item",
+        itemId: "wireframes_figma",
+        weight: 0.12,
+      },
+      sdlc_basics: {
+        label: "SDLC Basics",
+        kind: "jd_item",
+        itemId: "sdlc_basics",
+        weight: 0.1,
+      },
+      agile_scrum: {
+        label: "Agile/Scrum",
+        kind: "jd_item",
+        itemId: "agile_scrum",
+        weight: 0.1,
+      },
+      tools_pm: {
+        label: "Tools (Jira/Asana)",
+        kind: "jd_item",
+        itemId: "tools_pm",
+        weight: 0.1,
+      },
+      uat_testing: {
+        label: "UAT/Testing",
+        kind: "jd_item",
+        itemId: "uat_testing",
+        weight: 0.12,
+      },
+      reporting: {
+        label: "Reporting",
+        kind: "jd_item",
+        itemId: "reporting",
+        weight: 0.1,
+      },
+    },
+    mustPenalty: { max: 8, thr: 0.65 },
+  },
+};
+
+// map jd_checklist levels to 0..100 for axis scoring
+const AXIS_LEVEL_TO_SCORE = { Strong: 100, Medium: 80, Weak: 60 };
+
+function axisScoreFromRow(row) {
+  if (!row) return 0;
+  if (row.status !== "Pass") return 0;
+  return AXIS_LEVEL_TO_SCORE[row.level] ?? 60; // default Weak
+}
+
+// metrics bag: we pass in all the computed heuristics so "heuristic" axes could be added later
+function computeRoleAxes(role, jd_checklist, metrics = {}) {
+  const bp = ROLE_BLUEPRINTS[role];
+  if (!bp) return null;
+
+  const rows = new Map((jd_checklist || []).map((r) => [r.id, r]));
+  const axes = [];
+  let weighted = 0,
+    sumW = 0;
+
+  for (const [key, def] of Object.entries(bp.axes)) {
+    let score = 0;
+    if (def.kind === "jd_item") {
+      score = axisScoreFromRow(rows.get(def.itemId));
+    } else if (def.kind === "heuristic" && typeof def.compute === "function") {
+      // (not used in the examples above, but supported)
+      score = Math.max(0, Math.min(100, Math.round(def.compute(metrics))));
+    }
+    axes.push({
+      key,
+      label: def.label,
+      weight: def.weight,
+      score: Math.round(score),
+    });
+    weighted += (def.weight || 0) * (score / 100);
+    sumW += def.weight || 0;
+  }
+
+  const overall = sumW ? Math.round((weighted / sumW) * 100) : 0;
+  const mustMax = bp.mustPenalty?.max ?? 0;
+  const mustThr = bp.mustPenalty?.thr ?? 0.7;
+
+  return { axes, overall, mustPenaltyMax: mustMax, mustPenaltyThr: mustThr };
+}
 
 function resolveRoleKey(input) {
   const s = String(input || "")
@@ -2834,7 +3493,7 @@ function scoreKeywordsFromATS(ats) {
 const WHOLE_WORD_GUARD = ["git", "lever", "greenhouse", "zoho"];
 
 // === NEW: Ontology-aware ATS
-function buildATSForRole(candidateText, jdForRole) {
+function buildATSForRole(candidateText, jdForRole, role) {
   const raw = canonicalize(candidateText || "");
   const all = new Set();
   for (const it of jdForRole.items || [])
@@ -2845,6 +3504,8 @@ function buildATSForRole(candidateText, jdForRole) {
   const missing = new Set(all);
 
   for (const tg of all) {
+    const allow = contextualAllowForRole(tg, raw, role);
+    if (allow === false) continue; // skip ambiguous tag in wrong context
     const { hit, kind } = tagHitWithOntology(tg, raw);
     if (hit) {
       matched.add(tg);
@@ -2872,7 +3533,7 @@ function buildATSForRole(candidateText, jdForRole) {
 }
 
 // === NEW: Ontology-aware deterministic checklist (with partial credit)
-function checklistFromJD(candidateText, jdForRole) {
+function checklistFromJD(candidateText, jdForRole, role) {
   const raw = canonicalize(candidateText || "");
   const rows = [];
 
@@ -2882,6 +3543,8 @@ function checklistFromJD(candidateText, jdForRole) {
     let directCount = 0;
 
     for (const tg of tags) {
+      const allow = contextualAllowForRole(tg, raw, role);
+      if (allow === false) continue;
       const { hit, kind } = tagHitWithOntology(tg, raw);
       if (hit) {
         if (kind === "direct") {
@@ -3017,7 +3680,9 @@ function scoreRoleFit(jdChecklist = [], jdWeights = {}, jdItems = []) {
 // Strict tech depth from RESUME only.
 // - 0% if resume missing/too short
 // - No baseline points; no boost unless at least one area is detected
-const MIN_RESUME_LEN_FOR_TECH = Number(process.env.MIN_RESUME_LEN_FOR_TECH || 200);
+const MIN_RESUME_LEN_FOR_TECH = Number(
+  process.env.MIN_RESUME_LEN_FOR_TECH || 200
+);
 
 function scoreTechDepth(fullText) {
   const t = (fullText || "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -3025,11 +3690,11 @@ function scoreTechDepth(fullText) {
   // If resume missing/clearly wrong, return 0
   if (!t || t.length < MIN_RESUME_LEN_FOR_TECH) {
     const zeroAreas = [
-      { area: "frontend",  level: "Weak", value: 0, evidence: [] },
-      { area: "backend",   level: "Weak", value: 0, evidence: [] },
+      { area: "frontend", level: "Weak", value: 0, evidence: [] },
+      { area: "backend", level: "Weak", value: 0, evidence: [] },
       { area: "databases", level: "Weak", value: 0, evidence: [] },
-      { area: "cloud",     level: "Weak", value: 0, evidence: [] },
-      { area: "security",  level: "Weak", value: 0, evidence: [] },
+      { area: "cloud", level: "Weak", value: 0, evidence: [] },
+      { area: "security", level: "Weak", value: 0, evidence: [] },
     ];
     return { score: 0, core_stack: zeroAreas };
   }
@@ -3037,50 +3702,88 @@ function scoreTechDepth(fullText) {
   const has = (...ks) => ks.some((k) => t.includes(k));
 
   const feats = {
-    frontend:  has("react","vue","next","ssr","lazy load","bundle","redux","zustand"),
-    backend:   has("node","express","nest","api","microservice","grpc"),
-    databases: has("postgres","mysql","mongodb","dynamodb","index","query","sql"),
-    cloud:     has("aws","ec2","s3","lambda","cloudfront","api gateway","docker","kubernetes"),
-    security:  has("jwt","oauth","oauth2","session","owasp"),
+    frontend: has(
+      "react",
+      "vue",
+      "next",
+      "ssr",
+      "lazy load",
+      "bundle",
+      "redux",
+      "zustand"
+    ),
+    backend: has("node", "express", "nest", "api", "microservice", "grpc"),
+    databases: has(
+      "postgres",
+      "mysql",
+      "mongodb",
+      "dynamodb",
+      "index",
+      "query",
+      "sql"
+    ),
+    cloud: has(
+      "aws",
+      "ec2",
+      "s3",
+      "lambda",
+      "cloudfront",
+      "api gateway",
+      "docker",
+      "kubernetes"
+    ),
+    security: has("jwt", "oauth", "oauth2", "session", "owasp"),
   };
 
   // If no area detected at all → 0
   if (!Object.values(feats).some(Boolean)) {
     const zeroAreas = [
-      { area: "frontend",  level: "Weak", value: 0, evidence: [] },
-      { area: "backend",   level: "Weak", value: 0, evidence: [] },
+      { area: "frontend", level: "Weak", value: 0, evidence: [] },
+      { area: "backend", level: "Weak", value: 0, evidence: [] },
       { area: "databases", level: "Weak", value: 0, evidence: [] },
-      { area: "cloud",     level: "Weak", value: 0, evidence: [] },
-      { area: "security",  level: "Weak", value: 0, evidence: [] },
+      { area: "cloud", level: "Weak", value: 0, evidence: [] },
+      { area: "security", level: "Weak", value: 0, evidence: [] },
     ];
     return { score: 0, core_stack: zeroAreas };
   }
 
   // No baselines: areas start at 0 unless we detect signals
   let area = {
-    frontend:  feats.frontend  ? 0.7 : 0,
-    backend:   feats.backend   ? 0.7 : 0,
+    frontend: feats.frontend ? 0.7 : 0,
+    backend: feats.backend ? 0.7 : 0,
     databases: feats.databases ? 0.6 : 0,
-    cloud:     feats.cloud     ? 0.7 : 0,
-    security:  feats.security  ? 0.5 : 0,
+    cloud: feats.cloud ? 0.7 : 0,
+    security: feats.security ? 0.5 : 0,
   };
 
   // Boost only if some evidence exists; apply only to non-zero areas
-  const verbsStrong = (t.match(/\b(designed|architected|led|scaled|mentored|owned)\b/gi) || []).length;
-  const metrics     = (t.match(/\b(\d+%|x\d|\d+x|ms|reduced|improved)\b/gi) || []).length;
-  const years       = extractYears(t) || 0; // no default of 2
+  const verbsStrong = (
+    t.match(/\b(designed|architected|led|scaled|mentored|owned)\b/gi) || []
+  ).length;
+  const metrics = (t.match(/\b(\d+%|x\d|\d+x|ms|reduced|improved)\b/gi) || [])
+    .length;
+  const years = extractYears(t) || 0; // no default of 2
   const boost = clamp01(
     0.1 * Math.min(verbsStrong, 10) +
-    0.05 * Math.min(metrics, 10) +
-    Math.min(years, 8) / 80
+      0.05 * Math.min(metrics, 10) +
+      Math.min(years, 8) / 80
   );
 
   for (const k of Object.keys(area)) {
     if (area[k] > 0) area[k] = clamp01(area[k] + boost);
   }
 
-  const weights = { frontend: 0.22, backend: 0.22, databases: 0.18, cloud: 0.22, security: 0.16 };
-  const overall = Object.entries(area).reduce((s, [k, v]) => s + v * weights[k], 0);
+  const weights = {
+    frontend: 0.22,
+    backend: 0.22,
+    databases: 0.18,
+    cloud: 0.22,
+    security: 0.16,
+  };
+  const overall = Object.entries(area).reduce(
+    (s, [k, v]) => s + v * weights[k],
+    0
+  );
 
   const toLevel = (v) => (v >= 0.85 ? "Strong" : v >= 0.65 ? "Medium" : "Weak");
   return {
@@ -3093,7 +3796,6 @@ function scoreTechDepth(fullText) {
     })),
   };
 }
-
 
 function scoreDelivery(fullText) {
   const t = (fullText || "").toLowerCase();
@@ -3504,6 +4206,151 @@ app.post("/api/jd/upsert", async (req, res) => {
 /* ------------------------------- API: Analyze ----------------------------- */
 // --- Minimal JD builder from free-text or uploaded JD file ------------------
 // You can move this helper to your utilities section if you prefer.
+
+// ---- Ambiguity lexicons (shared across roles) ----
+const CTX_DEVOPS = [
+  "ci/cd",
+  "jenkins",
+  "github actions",
+  "gitlab ci",
+  "build",
+  "deploy",
+  "docker",
+  "kubernetes",
+  "terraform",
+  "helm",
+  "release",
+  "pipeline yaml",
+];
+const CTX_QA = [
+  "testing",
+  "qa",
+  "e2e",
+  "end-to-end testing",
+  "test case",
+  "cypress",
+  "selenium",
+  "playwright",
+  "automation",
+];
+const CTX_HR = [
+  "hiring",
+  "talent",
+  "recruiter",
+  "recruitment",
+  "candidate",
+  "sourcing",
+  "ats",
+  "offer",
+  "negotiation",
+  "screening",
+  "intake",
+  "hiring manager",
+];
+const CTX_PM = [
+  "stakeholder",
+  "roadmap",
+  "budget",
+  "gantt",
+  "status report",
+  "planning",
+];
+
+// Rules per ambiguous term. Each rule can have defaults (*) and/or per-role overrides.
+// require= at least one of these must be near the term; forbid= none of these may be near the term.
+const AMBIGUOUS_CONTEXT_RULES = {
+  pipeline: {
+    "*": {
+      /* no default requirement */
+    },
+    hr_recruiter: { require: CTX_HR, forbid: CTX_DEVOPS },
+    aws_devops_engineer: { require: CTX_DEVOPS },
+    backend_engineer_node: { require: CTX_DEVOPS },
+    backend_engineer_python: { require: CTX_DEVOPS },
+    frontend_engineer_react: { require: CTX_DEVOPS },
+    frontend_engineer_vue_nuxt: { require: CTX_DEVOPS },
+    qa_engineer: { require: [...CTX_DEVOPS, ...CTX_QA], forbid: CTX_HR },
+    project_manager: {
+      require: [...CTX_DEVOPS, "release", "deployment"],
+      forbid: CTX_HR,
+    },
+  },
+  "end-to-end": {
+    "*": {
+      /* allow if no conflicting context */
+    },
+    hr_recruiter: { require: CTX_HR, forbid: [...CTX_QA, ...CTX_DEVOPS] },
+    qa_engineer: { require: CTX_QA, forbid: CTX_HR },
+    project_manager: { require: CTX_PM, forbid: CTX_HR },
+  },
+  ownership: {
+    hr_recruiter: { require: CTX_HR, forbid: CTX_DEVOPS },
+  },
+  screening: {
+    hr_recruiter: {
+      require: [
+        ...CTX_HR,
+        "resume",
+        "profile",
+        "phone",
+        "interview",
+        "sourcing",
+      ],
+    },
+  },
+  offer: {
+    hr_recruiter: {
+      require: [
+        "candidate",
+        "salary",
+        "comp",
+        "compensation",
+        "ctc",
+        "accept",
+        "close",
+        "rollout",
+      ],
+    },
+  },
+  negotiation: {
+    hr_recruiter: { require: ["candidate", "salary", "comp", "ctc", "offer"] },
+  },
+  recruiter: {
+    hr_recruiter: {
+      require: [
+        "recruitment",
+        "technical hiring",
+        "it recruitment",
+        "talent",
+        "candidate",
+      ],
+    },
+  },
+};
+
+// Centralized decision: should a (canonical) tag count for this role in this text?
+function contextualAllowForRole(tagCanon, rawText, role, windowN = 28) {
+  const rulesForTag = AMBIGUOUS_CONTEXT_RULES[tagCanon];
+  if (!rulesForTag) return null; // no special rule → let default matching decide
+
+  // pick role override or fallback to "*"
+  const rule = rulesForTag[role] || rulesForTag["*"];
+  if (!rule) return null;
+
+  const need = rule.require || [];
+  const ban = rule.forbid || [];
+
+  if (need.length) {
+    const ok = need.some((w) => near(rawText, tagCanon, [w], windowN));
+    if (!ok) return false;
+  }
+  if (ban.length) {
+    const hit = ban.some((w) => near(rawText, tagCanon, [w], windowN));
+    if (hit) return false;
+  }
+  return true;
+}
+
 function buildJDFromText(jdTextRaw = "") {
   const text = String(jdTextRaw || "").trim();
   if (!text) return { weights: {}, items: [] };
@@ -3518,7 +4365,10 @@ function buildJDFromText(jdTextRaw = "") {
   const parts =
     lines.length >= 3
       ? lines
-      : text.split(/[\.\;\n]+/).map((s) => s.trim()).filter(Boolean);
+      : text
+          .split(/[\.\;\n]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
 
   // Limit to 12 concise requirements
   const rawItems = parts.slice(0, 12);
@@ -3664,18 +4514,27 @@ app.post(
 
       // Deterministic signals + checklist + ATS
       const signals = buildSignals(atsText, jd);
-      const detChecklist = checklistFromJD(atsText, jd);
-      let ats = buildATSForRole(atsText, jd);
+      const detChecklist = checklistFromJD(atsText, jd, role);
+      let ats = buildATSForRole(atsText, jd, role);
 
       const formattingDet = scoreFormattingHeuristic(resumeText || liText);
       const impactDet = scoreImpactHeuristic(candidateData);
       const recencyDet = estimateRecencyScore(candidateData);
       const keywordsDet = scoreKeywordsFromATS(ats) ?? 0;
 
-      const roleFitDet = scoreRoleFit(detChecklist, jd.weights || {}, jd.items || []);
+      const roleFitDet = scoreRoleFit(
+        detChecklist,
+        jd.weights || {},
+        jd.items || []
+      );
       const techDepthDet = scoreTechDepth(candidateData);
       const deliveryDet = scoreDelivery(candidateData);
-      const riskDet = scoreRisk({ red_flags: [] }, detChecklist, [], jd.items || []);
+      const riskDet = scoreRisk(
+        { red_flags: [] },
+        detChecklist,
+        [],
+        jd.items || []
+      );
 
       // LLM adjudication (optional)
       const model = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
@@ -3749,6 +4608,20 @@ app.post(
         role
       );
 
+      // metrics to allow heuristic axes if you later add them
+      const metricsBag = {
+        formattingDet,
+        impactDet,
+        recencyDet,
+        keywordsDet,
+        deliveryDet, // object with score & flags
+        techDepthDet, // object with score & areas
+        ats, // matched/missing lists
+      };
+
+      // Role-specific axes (fields) & role-specific overall
+      const roleAxes = computeRoleAxes(role, jd_checklist, metricsBag);
+
       // Recompute role-fit on merged checklist
       const roleFitMerged = scoreRoleFit(
         jd_checklist,
@@ -3757,20 +4630,47 @@ app.post(
       );
 
       // Overall score (deterministic primary, with must-have penalty)
-      const MUST_PENALTY_MAX = Number(process.env.MUST_PENALTY_MAX || 12); // pts
-      const MUST_PENALTY_THR = Number(process.env.MUST_PENALTY_THR || 0.7); // coverage
-      const deficit = Math.max(0, MUST_PENALTY_THR - roleFitMerged.mustCoverage);
-      const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit);
-      const baseOverall =
-        0.58 * (roleFitMerged.score / 100) +
-        0.14 * (techDepthDet.score / 100) +
-        0.12 * (deliveryDet.score / 100) +
-        0.06 * (formattingDet / 100) +
-        0.05 * (impactDet / 100) +
-        0.05 * (keywordsDet / 100);
+      let MUST_PENALTY_MAX = Number(process.env.MUST_PENALTY_MAX || 12);
+      let MUST_PENALTY_THR = Number(process.env.MUST_PENALTY_THR || 0.7);
 
-      let overallDet = clamp01(baseOverall) * 100 - mustPenalty;
-      overallDet = Math.max(0, Math.min(100, Math.round(overallDet)));
+      let overallDet;
+      if (roleAxes) {
+        // use per-role axis overall as the base
+        MUST_PENALTY_MAX = roleAxes.mustPenaltyMax ?? MUST_PENALTY_MAX;
+        MUST_PENALTY_THR = roleAxes.mustPenaltyThr ?? MUST_PENALTY_THR;
+
+        overallDet = roleAxes.overall; // already 0..100
+      } else {
+        // fallback to old component blend (tech_depth/delivery/etc.)
+        const baseOverall =
+          0.58 * (roleFitMerged.score / 100) +
+          0.14 * (techDepthDet.score / 100) +
+          0.12 * (deliveryDet.score / 100) +
+          0.06 * (formattingDet / 100) +
+          0.05 * (impactDet / 100) +
+          0.05 * (keywordsDet / 100);
+        overallDet = Math.round(Math.max(0, Math.min(100, baseOverall * 100)));
+      }
+
+      const deficit = Math.max(
+        0,
+        MUST_PENALTY_THR - roleFitMerged.mustCoverage
+      );
+      const mustPenalty = Math.round(MUST_PENALTY_MAX * deficit * deficit);
+      overallDet = Math.max(
+        0,
+        Math.min(100, Math.round(overallDet - mustPenalty))
+      );
+      // const baseOverall =
+      //   0.58 * (roleFitMerged.score / 100) +
+      //   0.14 * (techDepthDet.score / 100) +
+      //   0.12 * (deliveryDet.score / 100) +
+      //   0.06 * (formattingDet / 100) +
+      //   0.05 * (impactDet / 100) +
+      //   0.05 * (keywordsDet / 100);
+
+      // overallDet = clamp01(baseOverall) * 100 - mustPenalty;
+      // overallDet = Math.max(0, Math.min(100, Math.round(overallDet)));
 
       // Conservative LLM blending
       const llmOverall =
@@ -3781,7 +4681,10 @@ app.post(
       const liEvidence = liStatus.ok ? 1 : 0;
       const atsCov = (scoreKeywordsFromATS(ats) ?? 0) / 100;
       const evidenceScore = clamp01(
-        0.45 * resumeEvidence + 0.1 * liEvidence + 0.25 * atsCov + 0.2 * roleFitMerged.mustCoverage
+        0.45 * resumeEvidence +
+          0.1 * liEvidence +
+          0.25 * atsCov +
+          0.2 * roleFitMerged.mustCoverage
       );
       const llmWeight = llmOverall !== null ? clamp01(0.55 * evidenceScore) : 0;
       const overallBlended = Math.round(
@@ -3806,132 +4709,149 @@ app.post(
 
       // Confidence
       const passAnchor =
-        band === "fail" ? 50 : band === "low_pass" ? 55 : band === "normal_pass" ? 65 : 80;
+        band === "fail"
+          ? 50
+          : band === "low_pass"
+          ? 55
+          : band === "normal_pass"
+          ? 65
+          : 80;
       const scoreMargin = clamp01(Math.abs(overallBlended - passAnchor) / 30);
       const riskFactor = 1 - clamp01(riskDet.score / 120);
-      const confidence = clamp01(0.4 + 0.4 * evidenceScore + 0.2 * scoreMargin) * riskFactor;
+      const confidence =
+        clamp01(0.4 + 0.4 * evidenceScore + 0.2 * scoreMargin) * riskFactor;
 
       // Summary bullets
       const summary_bullets = [
-        `Overall ${overallBlended}% (${band.replace("_", " ")}), JD fit ${roleFitMerged.score}% with ${pct2(
-          roleFitMerged.mustCoverage
-        )}% must-have coverage.`,
+        `Overall ${overallBlended}% (${band.replace("_", " ")}), JD fit ${
+          roleFitMerged.score
+        }% with ${pct2(roleFitMerged.mustCoverage)}% must-have coverage.`,
         `Tech depth ${techDepthDet.score}%, delivery readiness ${deliveryDet.score}%.`,
-        `ATS coverage ${scoreKeywordsFromATS(ats) ?? 0}% (${ats.matched.length} matched / ${
-          ats.missing.length
-        } missing).`,
+        `ATS coverage ${scoreKeywordsFromATS(ats) ?? 0}% (${
+          ats.matched.length
+        } matched / ${ats.missing.length} missing).`,
         `Formatting ${formattingDet}%, impact signals ${impactDet}%, recency ${recencyDet}%.`,
         riskDet.score > 0
-          ? `Risk ${riskDet.score} (flags: ${riskDet.flags.map((f) => f.type).join(", ") || "none"}).`
+          ? `Risk ${riskDet.score} (flags: ${
+              riskDet.flags.map((f) => f.type).join(", ") || "none"
+            }).`
           : `Low risk profile.`,
       ];
 
       // const validForInsights = resumeValidForInsights(resumeText, role, detChecklist);
-      const validForInsights = resumeValidForInsights(resumeText, role, detChecklist);
+      const validForInsights = resumeValidForInsights(
+        resumeText,
+        role,
+        detChecklist
+      );
 
-let recommended_next_steps = [];
-let next_steps_source = "suppressed_invalid_resume";
+      let recommended_next_steps = [];
+      let next_steps_source = "suppressed_invalid_resume";
 
-if (validForInsights) {
-  // Try AI first (if key present), then deterministic fallback
-  if (process.env.GROQ_API_KEY) {
-    const aiSteps = await buildNextStepsAI({
-      client,
-      model,
-      role,
-      jd,
-      jd_checklist,
-      ats,
-      techDepthDet,
-      deliveryDet,
-      formattingDet,
-      impactDet,
-      recencyDet,
-      roleFitMerged,
-    });
-    if (aiSteps.length) {
-      recommended_next_steps = aiSteps;
-      next_steps_source = "llm";
-    }
-  }
+      if (validForInsights) {
+        // Try AI first (if key present), then deterministic fallback
+        if (process.env.GROQ_API_KEY) {
+          const aiSteps = await buildNextStepsAI({
+            client,
+            model,
+            role,
+            jd,
+            jd_checklist,
+            ats,
+            techDepthDet,
+            deliveryDet,
+            formattingDet,
+            impactDet,
+            recencyDet,
+            roleFitMerged,
+          });
+          if (aiSteps.length) {
+            recommended_next_steps = aiSteps;
+            next_steps_source = "llm";
+          }
+        }
 
-  if (!recommended_next_steps.length) {
-    recommended_next_steps = buildNextStepsDeterministic({
-      jd,
-      jd_checklist,
-      ats,
-      deliveryDet,
-      formattingDet,
-      impactDet,
-      roleFitMerged,
-    });
-    next_steps_source = "deterministic";
-  }
-} else {
-  // Nothing for wrong/very-short/mismatched resumes
-  recommended_next_steps = [];
-  next_steps_source = "resume_invalid";
-}
+        if (!recommended_next_steps.length) {
+          recommended_next_steps = buildNextStepsDeterministic({
+            jd,
+            jd_checklist,
+            ats,
+            deliveryDet,
+            formattingDet,
+            impactDet,
+            roleFitMerged,
+          });
+          next_steps_source = "deterministic";
+        }
+      } else {
+        // Nothing for wrong/very-short/mismatched resumes
+        recommended_next_steps = [];
+        next_steps_source = "resume_invalid";
+      }
 
       let strengths = [];
-let weaknesses = [];
-let hr_strengths_rich = [];
-let hr_weaknesses_rich = [];
-let hr_interview_probes = [];
-let hr_summary = null;
+      let weaknesses = [];
+      let hr_strengths_rich = [];
+      let hr_weaknesses_rich = [];
+      let hr_interview_probes = [];
+      let hr_summary = null;
 
+      if (validForInsights) {
+        // Prefer LLM bullets if present; top-up with deterministic
+        const strengthsLLM = Array.isArray(parsed.strengths)
+          ? parsed.strengths.map((s) => String(s).trim()).filter(Boolean)
+          : [];
+        const weaknessesLLM = Array.isArray(parsed.weaknesses)
+          ? parsed.weaknesses.map((s) => String(s).trim()).filter(Boolean)
+          : [];
 
-if (validForInsights) {
-  // Prefer LLM bullets if present; top-up with deterministic
-  const strengthsLLM = Array.isArray(parsed.strengths)
-    ? parsed.strengths.map(s => String(s).trim()).filter(Boolean)
-    : [];
-  const weaknessesLLM = Array.isArray(parsed.weaknesses)
-    ? parsed.weaknesses.map(s => String(s).trim()).filter(Boolean)
-    : [];
+        const hrDet = buildDeterministicHRInsights({
+          roleFit: roleFitMerged.score,
+          techDepth: techDepthDet.score,
+          delivery: deliveryDet.score,
+          atsPct: scoreKeywordsFromATS(ats) ?? 0,
+          formatting: formattingDet,
+          impact: impactDet,
+          recency: recencyDet,
+          jd,
+          jdChecklist: jd_checklist, // <-- ensure you pass jd_checklist here
+          ats,
+          resumeText,
+          liText,
+          candidateData,
+        });
 
-  const hrDet = buildDeterministicHRInsights({
-    roleFit: roleFitMerged.score,
-    techDepth: techDepthDet.score,
-    delivery: deliveryDet.score,
-    atsPct: scoreKeywordsFromATS(ats) ?? 0,
-    formatting: formattingDet,
-    impact: impactDet,
-    recency: recencyDet,
-    jd,
-    jdChecklist: jd_checklist,   // <-- ensure you pass jd_checklist here
-    ats,
-    resumeText,
-    liText,
-    candidateData,
-  });
+        strengths = uniqKeepOrder([...strengthsLLM, ...hrDet.strengths]).slice(
+          0,
+          5
+        );
+        weaknesses = uniqKeepOrder([
+          ...weaknessesLLM,
+          ...hrDet.weaknesses,
+        ]).slice(0, 4);
+        if (strengths.length < 3) strengths = hrDet.strengths; // keep your guard
+        if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
 
-  strengths = uniqKeepOrder([ ...strengthsLLM, ...hrDet.strengths ]).slice(0, 5);
-  weaknesses = uniqKeepOrder([ ...weaknessesLLM, ...hrDet.weaknesses ]).slice(0, 4);
-  if (strengths.length < 3) strengths = hrDet.strengths;   // keep your guard
-  if (weaknesses.length === 0) weaknesses = hrDet.weaknesses;
-
-  hr_strengths_rich   = hrDet.hr_strengths_rich;
-  hr_weaknesses_rich  = hrDet.hr_weaknesses_rich;
-  hr_interview_probes = hrDet.hr_interview_probes;
-  hr_summary          = hrDet.hr_summary;
-} else {
-  // Suppress insights for wrong/empty/mismatched resumes
-  strengths = [];
-  weaknesses = [];
-  hr_strengths_rich = [];
-  hr_weaknesses_rich = [];
-  hr_interview_probes = [];
-  hr_summary = null;
-}
-
-
+        hr_strengths_rich = hrDet.hr_strengths_rich;
+        hr_weaknesses_rich = hrDet.hr_weaknesses_rich;
+        hr_interview_probes = hrDet.hr_interview_probes;
+        hr_summary = hrDet.hr_summary;
+      } else {
+        // Suppress insights for wrong/empty/mismatched resumes
+        strengths = [];
+        weaknesses = [];
+        hr_strengths_rich = [];
+        hr_weaknesses_rich = [];
+        hr_interview_probes = [];
+        hr_summary = null;
+      }
 
       // Strengths/Weaknesses
-     
 
       // Score breakdown
-      const mustIds = new Set((jd.items || []).filter((i) => i.must).map((i) => i.id));
+      const mustIds = new Set(
+        (jd.items || []).filter((i) => i.must).map((i) => i.id)
+      );
       const detMap = new Map(jd_checklist.map((r) => [r.id, r]));
       let mustW = 0,
         mustGot = 0,
@@ -3953,10 +4873,15 @@ if (validForInsights) {
       const nicePct = niceW ? Math.round((niceGot / niceW) * 100) : 0;
 
       const t = toLower(candidateData);
-      const softHits = ["communication", "stakeholder", "client", "leadership", "mentored", "presentation", "collaboration"].reduce(
-        (a, k) => a + (t.includes(k) ? 1 : 0),
-        0
-      );
+      const softHits = [
+        "communication",
+        "stakeholder",
+        "client",
+        "leadership",
+        "mentored",
+        "presentation",
+        "collaboration",
+      ].reduce((a, k) => a + (t.includes(k) ? 1 : 0), 0);
       const softSkillsPct = Math.min(100, 25 * softHits);
 
       const score_breakdown = {
@@ -3993,8 +4918,235 @@ if (validForInsights) {
       const decision = band === "fail" ? "Fail" : "Pass";
       const recommendation = action; // immediate_hire | can_be_hire | hold | reject
 
+      // Detailed parts (non-breaking to your existing scores)
+      const formattingDetDetail = scoreFormattingHeuristicDetailed(
+        resumeText || liText
+      );
+      const impactDetDetail = scoreImpactHeuristicDetailed(candidateData);
+      const deliveryDetail = deliveryParts(candidateData); // optional if you want to cross-check
+
+      // --- NEW: role-aware score explanation
+      function buildScoreExplainDetailed({
+        role, // <- add
+        roleAxes, // <- add
+        jd,
+        jd_checklist,
+        roleFitPct,
+        techDepthDet,
+        deliveryDet,
+        formattingDetDetail,
+        impactDetDetail,
+        keywordsPct,
+        ats,
+        mustCoverage,
+        mustPenalty,
+        mustPenaltyThr,
+        llmOverall,
+        llmWeight,
+        overallDet,
+        overallBlended,
+        candidateData,
+      }) {
+        // If we have a role blueprint, build components from its axes instead of the generic stack.
+        let components;
+        let drilldowns = {};
+        if (roleAxes && Array.isArray(roleAxes.axes) && roleAxes.axes.length) {
+          const sumW =
+            roleAxes.axes.reduce((s, a) => s + (a.weight || 0), 0) || 1;
+          components = roleAxes.axes.map((ax) => {
+            const wNorm = (ax.weight || 0) / sumW;
+            return {
+              key: ax.key,
+              label: ax.label,
+              weight: +wNorm.toFixed(2), // normalized weight you can display
+              raw: Math.round(ax.score || 0), // axis score 0..100
+              points: +(wNorm * (ax.score || 0)).toFixed(1), // “points before penalty”
+            };
+          });
+          // Role-specific drilldown
+          drilldowns.role_axes = {
+            axes: components.map(({ key, label, weight, raw, points }) => ({
+              key,
+              label,
+              weight,
+              score: raw,
+              points,
+            })),
+          };
+          // Keep general non-dev heuristics available, but DO NOT include dev-only drilldowns
+          drilldowns.formatting = formattingDetDetail;
+          drilldowns.impact = impactDetDetail;
+          drilldowns.keywords = {
+            coverage_pct: keywordsPct,
+            matched: ats.matched,
+            missing: ats.missing,
+          };
+        } else {
+          // Fallback to legacy generic components (dev-centric)
+          components = [
+            {
+              key: "jd_fit",
+              label: "JD Fit",
+              weight: 0.58,
+              raw: roleFitPct,
+              points: +(0.58 * roleFitPct).toFixed(1),
+            },
+            {
+              key: "tech_depth",
+              label: "Technical Depth",
+              weight: 0.14,
+              raw: techDepthDet.score,
+              points: +(0.14 * techDepthDet.score).toFixed(1),
+            },
+            {
+              key: "delivery",
+              label: "Delivery Readiness",
+              weight: 0.12,
+              raw: deliveryDet.score,
+              points: +(0.12 * deliveryDet.score).toFixed(1),
+            },
+            {
+              key: "formatting",
+              label: "Formatting",
+              weight: 0.06,
+              raw: formattingDetDetail.score,
+              points: +(0.06 * formattingDetDetail.score).toFixed(1),
+            },
+            {
+              key: "impact",
+              label: "Impact Signals",
+              weight: 0.05,
+              raw: impactDetDetail.score,
+              points: +(0.05 * impactDetDetail.score).toFixed(1),
+            },
+            {
+              key: "keywords",
+              label: "ATS Keywords",
+              weight: 0.05,
+              raw: keywordsPct,
+              points: +(0.05 * keywordsPct).toFixed(1),
+            },
+          ];
+          // legacy drilldowns
+          const techSignals = techDepthSignals(candidateData);
+          const tech_area_weights = {
+            frontend: 0.22,
+            backend: 0.22,
+            databases: 0.18,
+            cloud: 0.22,
+            security: 0.16,
+          };
+          const tech_area = (techDepthDet.core_stack || [])
+            .map((a) => {
+              const pct = Math.round(
+                100 * (a.value * tech_area_weights[a.area])
+              );
+              const overallPts = +(0.14 * pct).toFixed(2);
+              return {
+                area: a.area,
+                level: a.level,
+                value: a.value,
+                pct_of_tech_depth: pct,
+                overall_points: overallPts,
+                signals: techSignals[a.area] || [],
+              };
+            })
+            .sort((a, b) => b.overall_points - a.overall_points);
+          drilldowns = {
+            jd_fit: { items: perJDContrib(jd_checklist, jd) },
+            tech_depth: { areas: tech_area, area_weights: tech_area_weights },
+            delivery: deliveryParts(candidateData),
+            formatting: formattingDetDetail,
+            impact: impactDetDetail,
+            keywords: {
+              coverage_pct: keywordsPct,
+              matched: ats.matched,
+              missing: ats.missing,
+            },
+          };
+        }
+
+        const components_total = +components
+          .reduce((s, c) => s + c.points, 0)
+          .toFixed(1);
+
+        // Penalties (unchanged)
+        const penalties = [];
+        if (mustPenalty > 0) {
+          const failedMusts = jd_checklist
+            .filter(
+              (r) =>
+                r.status !== "Pass" &&
+                (jd.items || []).find((it) => it.id === r.id)?.must
+            )
+            .map((r) => ({ id: r.id, label: r.skill }));
+          penalties.push({
+            reason: "Missing must-have coverage",
+            points: mustPenalty,
+            details: `Coverage ${Math.round(
+              mustCoverage * 100
+            )}% < threshold ${Math.round(mustPenaltyThr * 100)}%`,
+            failed_musts: failedMusts,
+          });
+        }
+        const penalties_total = penalties.reduce((s, p) => s + p.points, 0);
+
+        const llm_adjustment = {
+          enabled: llmOverall !== null && llmWeight > 0,
+          llm_overall: llmOverall,
+          weight_pct: Math.round(llmWeight * 100),
+          delta: +(overallBlended - overallDet).toFixed(1),
+        };
+
+        return {
+          formula: roleAxes
+            ? "overall = Σ(normalized axis weight × axis score) − mustPenalty"
+            : "overall = blend( sum(weight*component) − mustPenalty )",
+          components,
+          components_total,
+          drilldowns,
+          penalties,
+          penalties_total,
+          after_penalty: +(components_total - penalties_total).toFixed(1),
+          llm_adjustment,
+          final_overall: overallBlended,
+        };
+      }
+
+      const score_explain = buildScoreExplainDetailed({
+        role,
+        roleAxes, // <- NEW
+        jd,
+        jd_checklist,
+        roleFitPct: roleFitMerged.score,
+        techDepthDet,
+        deliveryDet,
+        formattingDetDetail,
+        impactDetDetail,
+        keywordsPct: scoreKeywordsFromATS(ats) ?? 0,
+        ats,
+        mustCoverage: roleFitMerged.mustCoverage,
+        mustPenalty,
+        mustPenaltyThr: MUST_PENALTY_THR,
+        llmOverall,
+        llmWeight,
+        overallDet,
+        overallBlended,
+        candidateData,
+      });
+
       // Build response
       const response = {
+        role_axes: roleAxes
+          ? {
+              overall: roleAxes.overall, // overall before must-penalty/LLM blend
+              axes: roleAxes.axes, // [{ key, label, weight, score }, ...]
+              must_penalty: {
+                max: roleAxes.mustPenaltyMax,
+                threshold: roleAxes.mustPenaltyThr,
+              },
+            }
+          : null,
         score: overallBlended,
         decision,
         recommendation,
@@ -4005,9 +5157,17 @@ if (validForInsights) {
         red_flags: [],
         training_needs: (ats.missing || []).slice(0, 6),
         growth_potential:
-          overallBlended >= 80 ? "Strong" : overallBlended >= 65 ? "Average" : "Limited",
+          overallBlended >= 80
+            ? "Strong"
+            : overallBlended >= 65
+            ? "Average"
+            : "Limited",
         role_alignment:
-          roleFitMerged.score >= 75 ? "High" : roleFitMerged.score >= 55 ? "Medium" : "Low",
+          roleFitMerged.score >= 75
+            ? "High"
+            : roleFitMerged.score >= 55
+            ? "Medium"
+            : "Low",
 
         hire_scores: {
           role_fit: roleFitMerged.score,
@@ -4019,10 +5179,12 @@ if (validForInsights) {
         score_summary,
 
         extended: {
+          score_explain,
           jd_origin: jdOrigin, // <- tell frontend which JD was used
           candidate_name: parsed.candidate_name || null,
           contact: parsed.contact || { emails: [], phones: [], location: null },
-          experience_years: parsed.experience_years ?? extractYears(candidateData) ?? null,
+          experience_years:
+            parsed.experience_years ?? extractYears(candidateData) ?? null,
           timeline_note: parsed.timeline_note || null,
           ats_keywords: ats,
           score_breakdown,
@@ -4111,7 +5273,6 @@ if (validForInsights) {
     }
   }
 );
-
 
 /* --------------------------------- Startup -------------------------------- */
 app.listen(PORT, () => {

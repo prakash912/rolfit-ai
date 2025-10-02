@@ -34,6 +34,93 @@ import autoTable from "jspdf-autotable";
 import jsPDF from "jspdf";
 
 /* ====================== Types (match updated backend) ===================== */
+
+type ScoreExplain = {
+  formula: string;
+  components: {
+    key: string;
+    label: string;
+    weight: number;
+    raw: number;
+    points: number;
+  }[];
+  components_total: number;
+  drilldowns: {
+    jd_fit: {
+      items: {
+        id: string;
+        label: string;
+        must: boolean;
+        status: "Pass" | "Fail";
+        level?: string;
+        weight: number;
+        jd_fit_share_pct: number;
+        overall_points: number;
+      }[];
+    };
+    tech_depth: {
+      areas: {
+        area: string;
+        level: string;
+        value: number;
+        pct_of_tech_depth: number;
+        overall_points: number;
+        signals: string[];
+      }[];
+      area_weights: Record<string, number>;
+    };
+    delivery: {
+      score: number;
+      parts: {
+        key: string;
+        label: string;
+        yes: boolean;
+        count?: number;
+        pct: number;
+      }[];
+    };
+    formatting: {
+      score: number;
+      parts: {
+        bullets: number;
+        lines: number;
+        bulletRatio: number;
+        sections: number;
+        secScore: number;
+        dates: number;
+        dateScore: number;
+        formula: string;
+      };
+    };
+    impact: {
+      score: number;
+      parts: {
+        metricsCount: number;
+        metricsCapped: number;
+        strongVerbsCount: number;
+        verbsCapped: number;
+        formula: string;
+      };
+    };
+    keywords: { coverage_pct: number; matched: string[]; missing: string[] };
+  };
+  penalties: {
+    reason: string;
+    points: number;
+    details?: string;
+    failed_musts?: { id: string; label: string }[];
+  }[];
+  penalties_total: number;
+  after_penalty: number;
+  llm_adjustment: {
+    enabled: boolean;
+    llm_overall: number | null;
+    weight_pct: number;
+    delta: number;
+  };
+  final_overall: number;
+};
+
 export type JDItem = {
   skill: string;
   status: "Pass" | "Fail";
@@ -139,6 +226,226 @@ export default function AnalyzeResume3Step() {
       .trim();
   };
 
+  function ScoreWhyCard({ ex }: { ex?: Extended }) {
+    const sx = ex?.score_explain as ScoreExplain | undefined;
+    if (!sx) return null;
+
+    return (
+      <Card className="shadow-sm border-slate-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <BarChart4 className="h-5 w-5" /> Why this score?
+          </CardTitle>
+          <CardDescription>{sx.formula}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5 text-sm text-slate-800">
+          {/* Top-line component contributions */}
+          <div>
+            <div className="font-medium mb-2">
+              Components (points before penalty)
+            </div>
+            {sx.components.map((c) => (
+              <div key={c.key} className="flex items-center gap-3 mb-1">
+                <div className="w-36 text-slate-600">{c.label}</div>
+                <div className="flex-1 h-2 bg-slate-100 rounded">
+                  <div
+                    className="h-2 bg-slate-400"
+                    style={{ width: `${Math.min(100, c.points)}%` }}
+                  />
+                </div>
+                <div className="w-44 text-right tabular-nums">
+                  {c.raw}% × {c.weight.toFixed(2)} ={" "}
+                  <b>{c.points.toFixed(1)} pt</b>
+                </div>
+              </div>
+            ))}
+            <div className="mt-1 text-right">
+              Subtotal: <b>{sx.components_total.toFixed(1)} pt</b>
+            </div>
+          </div>
+
+          {/* JD items table */}
+          {sx?.drilldowns?.jd_fit?.items && (
+            <div className="pt-3 border-t">
+              <div className="font-medium mb-2">JD Fit — itemised</div>
+              <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-600 mb-1">
+                <div className="col-span-5">Item</div>
+                <div className="col-span-1">MUST</div>
+                <div className="col-span-2">Status/Level</div>
+                <div className="col-span-2">JD-fit %</div>
+                <div className="col-span-2 text-right">Overall pt</div>
+              </div>
+              {sx?.drilldowns?.jd_fit?.items?.map((it) => (
+                <div
+                  key={it.id}
+                  className="grid grid-cols-12 gap-2 py-1 border-b border-slate-100"
+                >
+                  <div className="col-span-5">{it.label}</div>
+                  <div className="col-span-1">{it.must ? "Yes" : "No"}</div>
+                  <div className="col-span-2">
+                    {it.status}
+                    {it.level ? `/${it.level}` : ""}
+                  </div>
+                  <div className="col-span-2">
+                    {it.jd_fit_share_pct.toFixed(2)}%
+                  </div>
+                  <div className="col-span-2 text-right tabular-nums">
+                    {it.overall_points.toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Tech depth drilldown */}
+          {sx.drilldowns?.tech_depth?.areas && (
+            <div className="pt-3 border-t">
+              <div className="font-medium mb-2">Technical Depth — areas</div>
+              {sx.drilldowns?.tech_depth?.areas?.map((a) => (
+                <div
+                  key={a.area}
+                  className="flex justify-between py-1 border-b border-slate-100"
+                >
+                  <div>
+                    <b className="capitalize">{a.area}</b> ({a.level}) —
+                    signals:{" "}
+                    <span className="text-slate-600">
+                      {a.signals.join(", ") || "—"}
+                    </span>
+                  </div>
+                  <div className="tabular-nums">
+                    {a.pct_of_tech_depth}% →{" "}
+                    <b>{a.overall_points.toFixed(2)} pt</b>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Delivery parts */}
+          {sx.drilldowns?.delivery?.parts && (
+            <div className="pt-3 border-t">
+              <div className="font-medium mb-2">Delivery Readiness — parts</div>
+              {sx.drilldowns?.delivery?.parts?.map((p) => (
+                <div key={p.key} className="flex justify-between py-0.5">
+                  <span>
+                    {p.label}
+                    {typeof p.count === "number" ? ` (x${p.count})` : ""}
+                  </span>
+                  <span className="tabular-nums">
+                    {p.pct}% of delivery → <b>{(0.12 * p.pct).toFixed(2)} pt</b>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Formatting & Impact evidence */}
+          <div className="pt-3 border-t grid md:grid-cols-2 gap-4">
+            <div>
+              <div className="font-medium mb-1">Formatting evidence</div>
+              <div className="text-slate-700">
+                Bullets {sx.drilldowns.formatting.parts.bullets}/
+                {sx.drilldowns.formatting.parts.lines}, Sections{" "}
+                {sx.drilldowns.formatting.parts.sections}, Dates{" "}
+                {sx.drilldowns.formatting.parts.dates}
+              </div>
+              <div className="text-slate-500 text-xs">
+                {sx.drilldowns.formatting.parts.formula}
+              </div>
+            </div>
+            <div>
+              <div className="font-medium mb-1">Impact evidence</div>
+              <div className="text-slate-700">
+                Metrics {sx.drilldowns.impact.parts.metricsCount}, Strong verbs{" "}
+                {sx.drilldowns.impact.parts.strongVerbsCount}
+              </div>
+              <div className="text-slate-500 text-xs">
+                {sx.drilldowns.impact.parts.formula}
+              </div>
+            </div>
+          </div>
+
+          {/* ATS list */}
+          <div className="pt-3 border-t">
+            <div className="font-medium mb-2">ATS keywords</div>
+            <div className="mb-1">
+              Coverage: <b>{sx.drilldowns.keywords.coverage_pct}%</b>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <div className="text-emerald-700 font-medium">Matched</div>
+                <div className="text-slate-700">
+                  {sx.drilldowns.keywords.matched.join(", ") || "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-red-700 font-medium">Missing</div>
+                <div className="text-slate-700">
+                  {sx.drilldowns.keywords.missing.join(", ") || "—"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Deductions */}
+          {sx?.penalties?.length > 0 && (
+            <div className="pt-3 border-t">
+              <div className="font-medium mb-2 text-red-700">Deductions</div>
+              {sx.penalties?.map((p, i) => (
+                <div key={i} className="mb-2">
+                  <div className="flex justify-between">
+                    <span>
+                      {p.reason}
+                      {p.details ? ` — ${p.details}` : ""}
+                    </span>
+                    <span className="text-red-700 font-semibold">
+                      −{p.points} pt
+                    </span>
+                  </div>
+                  {p.failed_musts?.length ? (
+                    <ul className="list-disc ml-5 text-slate-700">
+                      {p.failed_musts.map((m) => (
+                        <li key={m.id}>{m.label}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ))}
+              <div className="text-right">
+                After penalty: <b>{sx.after_penalty.toFixed(1)} pt</b>
+              </div>
+            </div>
+          )}
+
+          {/* LLM blend */}
+          <div className="pt-3 border-t flex justify-between">
+            <span>
+              LLM blend{" "}
+              {sx.llm_adjustment.enabled
+                ? `(weight ${sx.llm_adjustment.weight_pct}%, model overall ${sx.llm_adjustment.llm_overall}%)`
+                : "(disabled)"}
+            </span>
+            <span
+              className={
+                sx.llm_adjustment.delta >= 0
+                  ? "text-emerald-700"
+                  : "text-red-700"
+              }
+            >
+              {sx.llm_adjustment.delta >= 0 ? "+" : ""}
+              {sx.llm_adjustment.delta.toFixed(1)} pt
+            </span>
+          </div>
+
+          <div className="pt-2 text-right border-t">
+            Final overall: <b className="tabular-nums">{sx.final_overall}%</b>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   function highlightNumbers(s: string) {
     // Wrap % and numbers in <mark> (subtle)
     const parts = s.split(/(\d+%|\d+\b)/g);
@@ -226,17 +533,19 @@ export default function AnalyzeResume3Step() {
   const [result, setResult] = useState<LegacyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-const [jdMode, setJdMode] = useState<"default" | "upload" | "text">("default");
-const [jdFile, setJdFile] = useState<File | null>(null);
-const [jdText, setJdText] = useState("");
+  const [jdMode, setJdMode] = useState<"default" | "upload" | "text">(
+    "default"
+  );
+  const [jdFile, setJdFile] = useState<File | null>(null);
+  const [jdText, setJdText] = useState("");
 
-function getJDExample(r: string) {
-  if (r === "qa_engineer") {
-    return `Required: 3+ years manual testing for web/mobile and API.\nAutomation with Selenium or Cypress (nice to have Playwright).\nAPI testing with Postman/Swagger.\nBug tracking in Jira/Zephyr; write and maintain test cases.\nFamiliar with CI/CD and Git.\nGood communication for client updates.`;
+  function getJDExample(r: string) {
+    if (r === "qa_engineer") {
+      return `Required: 3+ years manual testing for web/mobile and API.\nAutomation with Selenium or Cypress (nice to have Playwright).\nAPI testing with Postman/Swagger.\nBug tracking in Jira/Zephyr; write and maintain test cases.\nFamiliar with CI/CD and Git.\nGood communication for client updates.`;
+    }
+    // default software engineer example
+    return `Required: 3+ years with React and Node.js.\nTypeScript, REST and/or GraphQL APIs.\nSQL (Postgres/MySQL) and a NoSQL (MongoDB) nice to have.\nAuthN/Z (JWT/OAuth2) and security basics.\nAWS exposure (S3, EC2, Lambda) and CI/CD (GitHub Actions/Jenkins).\nClear communication and code reviews.`;
   }
-  // default software engineer example
-  return `Required: 3+ years with React and Node.js.\nTypeScript, REST and/or GraphQL APIs.\nSQL (Postgres/MySQL) and a NoSQL (MongoDB) nice to have.\nAuthN/Z (JWT/OAuth2) and security basics.\nAWS exposure (S3, EC2, Lambda) and CI/CD (GitHub Actions/Jenkins).\nClear communication and code reviews.`;
-}
 
   // ===== Visual refs (GSAP) =====
   const scanOverlayRef = useRef<HTMLDivElement>(null);
@@ -569,9 +878,9 @@ function getJDExample(r: string) {
     fd.append("role", role);
     fd.append("resume", resumeFile);
     if (linkedinUrl) fd.append("linkedinUrl", linkedinUrl.trim());
-     fd.append("jd_mode", jdMode);
-if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
- if (jdMode === "text" && jdText.trim()) fd.append("jd_text", jdText.trim());
+    fd.append("jd_mode", jdMode);
+    if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
+    if (jdMode === "text" && jdText.trim()) fd.append("jd_text", jdText.trim());
 
     setLoading(true);
     try {
@@ -1056,93 +1365,119 @@ if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
           {/* Step 1 */}
           {step === 1 && (
             <Card className="mb-8 shadow-sm">
-
               <Card className="mb-8 shadow-sm">
-              <CardHeader className="border-b bg-slate-50/80">
-                <CardTitle className="flex items-center gap-2 text-xl">
-
-              <div><Upload className="h-5 w-5 text-blue-500" /> Step 1: Add
-                  Details & Resume
-                <CardDescription>
-                  Choose role, paste LinkedIn, and add your resume (PDF/DOCX)
-                </CardDescription></div>
-                </CardTitle>
+                <CardHeader className="border-b bg-slate-50/80">
+                  <CardTitle className="flex items-center gap-2 text-xl">
+                    <div>
+                      <Upload className="h-5 w-5 text-blue-500" /> Step 1: Add
+                      Details & Resume
+                      <CardDescription>
+                        Choose role, paste LinkedIn, and add your resume
+                        (PDF/DOCX)
+                      </CardDescription>
+                    </div>
+                  </CardTitle>
                 </CardHeader>
-                </Card>
+              </Card>
 
-  <CardHeader>
-    <CardTitle className="text-base">Job Description</CardTitle>
-    <CardDescription>Select how you want to provide the JD.</CardDescription>
-  </CardHeader>
-  <CardContent className="space-y-3">
-    <div className="flex gap-2">
-      <Button variant={jdMode === "default" ? "default" : "outline"} size="sm" onClick={() => setJdMode("default")}>
-        Use default SYMB JD
-      </Button>
-      <Button variant={jdMode === "upload" ? "default" : "outline"} size="sm" onClick={() => setJdMode("upload")}>
-        Upload JD
-      </Button>
-      <Button variant={jdMode === "text" ? "default" : "outline"} size="sm" onClick={() => setJdMode("text")}>
-        Write JD
-      </Button>
-    </div>
+              <CardHeader>
+                <CardTitle className="text-base">Job Description</CardTitle>
+                <CardDescription>
+                  Select how you want to provide the JD.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Button
+                    variant={jdMode === "default" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setJdMode("default")}
+                  >
+                    Use default SYMB JD
+                  </Button>
+                  <Button
+                    variant={jdMode === "upload" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setJdMode("upload")}
+                  >
+                    Upload JD
+                  </Button>
+                  <Button
+                    variant={jdMode === "text" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setJdMode("text")}
+                  >
+                    Write JD
+                  </Button>
+                </div>
 
-    {jdMode === "upload" && (
-      <div className="flex items-center gap-3">
-        <Input
-          type="file"
-          accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          onChange={(e) => setJdFile(e.target.files?.[0] || null)}
-        />
-        {jdFile && (
-          <div className="text-xs text-gray-500">
-            {jdFile.name} • {(jdFile.size / 1024).toFixed(1)} KB
-            <Button variant="ghost" size="icon" onClick={() => setJdFile(null)} className="ml-1">
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
-      </div>
-    )}
+                {jdMode === "upload" && (
+                  <div className="flex items-center gap-3">
+                    <Input
+                      type="file"
+                      accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={(e) => setJdFile(e.target.files?.[0] || null)}
+                    />
+                    {jdFile && (
+                      <div className="text-xs text-gray-500">
+                        {jdFile.name} • {(jdFile.size / 1024).toFixed(1)} KB
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setJdFile(null)}
+                          className="ml-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-    {jdMode === "text" && (
-      <div className="space-y-2">
-        <textarea
-          className="w-full rounded border p-3 text-sm min-h-[140px]"
-          placeholder={`Paste or type the JD here. One requirement per line.\n\nTip: mark must-haves with words like "Required", "Must", or "3+ years".`}
-          value={jdText}
-          onChange={(e) => setJdText(e.target.value)}
-        />
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setJdText(getJDExample(role))}
-          >
-            Use example JD
-          </Button>
-          <span className="text-xs text-gray-500">We’ll detect must-haves and tags automatically.</span>
-        </div>
-      </div>
-    )}
+                {jdMode === "text" && (
+                  <div className="space-y-2">
+                    <textarea
+                      className="w-full rounded border p-3 text-sm min-h-[140px]"
+                      placeholder={`Paste or type the JD here. One requirement per line.\n\nTip: mark must-haves with words like "Required", "Must", or "3+ years".`}
+                      value={jdText}
+                      onChange={(e) => setJdText(e.target.value)}
+                    />
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setJdText(getJDExample(role))}
+                      >
+                        Use example JD
+                      </Button>
+                      <span className="text-xs text-gray-500">
+                        We’ll detect must-haves and tags automatically.
+                      </span>
+                    </div>
+                  </div>
+                )}
 
-    {jdMode === "default" && (
-      <div className="text-xs text-gray-600">
-        Using the built-in SYMB JD for <b>{formatValue(role)}</b>. You can switch to “Upload JD” or “Write JD” anytime.
-      </div>
-    )}
-  </CardContent>
+                {jdMode === "default" && (
+                  <div className="text-xs text-gray-600">
+                    Using the built-in SYMB JD for <b>{formatValue(role)}</b>.
+                    You can switch to “Upload JD” or “Write JD” anytime.
+                  </div>
+                )}
+              </CardContent>
 
-{result?.extended?.jd_origin && (
-  <div className="text-xs text-gray-500 mt-2">
-    JD mode: <b>{result.extended.jd_origin.mode}</b>
-    {result.extended.jd_origin.items ? ` • ${result.extended.jd_origin.items} items` : null}
-    {result.extended.jd_origin.note ? ` — ${result.extended.jd_origin.note}` : null}
-  </div>
-)}
+              {result?.extended?.jd_origin && (
+                <div className="text-xs text-gray-500 mt-2">
+                  JD mode: <b>{result.extended.jd_origin.mode}</b>
+                  {result.extended.jd_origin.items
+                    ? ` • ${result.extended.jd_origin.items} items`
+                    : null}
+                  {result.extended.jd_origin.note
+                    ? ` — ${result.extended.jd_origin.note}`
+                    : null}
+                </div>
+              )}
 
-      
               <CardContent className="pt-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div>
@@ -1242,7 +1577,7 @@ if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
                       : "Drag and drop your resume"}
                   </p>
                   <p className="text-gray-500 mb-6">or</p>
-                    <Input
+                  <Input
                     id="resume-input"
                     type="file"
                     accept=".pdf,.docx"
@@ -1398,7 +1733,7 @@ if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
                   />
                   <HireCard
                     title="Risk (higher is better)"
-                    value={100 -(hire.risk || 0)}
+                    value={100 - (hire.risk || 0)}
                     invert
                     hint="Penalty for must-fail & flags"
                   />
@@ -1571,6 +1906,8 @@ if (jdMode === "upload" && jdFile) fd.append("jd", jdFile);
                   }
                 />
               )}
+
+              <ScoreWhyCard ex={result?.extended} />
 
               {/* Suggestions & Strengths */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
