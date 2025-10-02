@@ -83,7 +83,7 @@ export function Navbar() {
           </svg>
         </div>
         
-        <div className="container mx-auto flex justify-between items-center">
+        <div className=" mx-auto flex justify-between items-center">
           <Link to="/" className="flex items-center space-x-2 group">
             <span className="font-bold text-2xl text-slate-900 group-hover:text-blue-600 transition-colors">
               RoleFit AI
@@ -91,7 +91,7 @@ export function Navbar() {
           </Link>
 
           {/* Mobile menu button */}
-          <div className="md:hidden">
+          {/* <div className="md:hidden">
             <Button
               variant="ghost"
               size="icon"
@@ -100,7 +100,7 @@ export function Navbar() {
             >
               {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
             </Button>
-          </div>
+          </div> */}
 
           {/* Desktop menu */}
           <div className="hidden md:flex items-center space-x-8">
@@ -137,7 +137,7 @@ export function Navbar() {
         />
 
         {/* Mobile Menu Drawer */}
-        <div
+        {/* <div
           className={`md:hidden fixed top-0 right-0 h-full w-4/5 max-w-sm bg-white !important z-50 transform transition-transform duration-300 ease-in-out ${isMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}
         >
           <div className="p-6 flex flex-col h-full">
@@ -166,7 +166,7 @@ export function Navbar() {
               {renderMobileAuthButtons()}
             </div>
           </div>
-        </div>
+        </div> */}
       </nav>
     </>
   );

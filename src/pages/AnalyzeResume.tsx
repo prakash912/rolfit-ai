@@ -226,59 +226,294 @@ export default function AnalyzeResume3Step() {
       .trim();
   };
 
-  function ScoreWhyCard({ ex }: { ex?: Extended }) {
-    const sx = ex?.score_explain as ScoreExplain | undefined;
-    if (!sx) return null;
+  // function ScoreWhyCard({ ex }: { ex?: Extended }) {
+  //   const sx = ex?.score_explain as ScoreExplain | undefined;
+  //   if (!sx) return null;
 
-    return (
-      <Card className="shadow-sm border-slate-200">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2">
-            <BarChart4 className="h-5 w-5" /> Why this score?
-          </CardTitle>
-          <CardDescription>{sx.formula}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5 text-sm text-slate-800">
-          {/* Top-line component contributions */}
-          <div>
-            <div className="font-medium mb-2">
-              Components (points before penalty)
-            </div>
+  //   return (
+  //     <Card className="shadow-sm border-slate-200">
+  //       <CardHeader className="pb-3">
+  //         <CardTitle className="flex items-center gap-2">
+  //           <BarChart4 className="h-5 w-5" /> Why this score?
+  //         </CardTitle>
+  //         <CardDescription>{sx.formula}</CardDescription>
+  //       </CardHeader>
+  //       <CardContent className="space-y-5 text-sm text-slate-800">
+  //         {/* Top-line component contributions */}
+  //         <div>
+  //           <div className="font-medium mb-2">
+  //             Components (points before penalty)
+  //           </div>
+  //           {sx.components.map((c) => (
+  //             <div key={c.key} className="flex items-center gap-3 mb-1">
+  //               <div className="w-36 text-slate-600">{c.label}</div>
+  //               <div className="flex-1 h-2 bg-slate-100 rounded">
+  //                 <div
+  //                   className="h-2 bg-slate-400"
+  //                   style={{ width: `${Math.min(100, c.points)}%` }}
+  //                 />
+  //               </div>
+  //               <div className="w-44 text-right tabular-nums">
+  //                 {c.raw}% × {c.weight.toFixed(2)} ={" "}
+  //                 <b>{c.points.toFixed(1)} pt</b>
+  //               </div>
+  //             </div>
+  //           ))}
+  //           <div className="mt-1 text-right">
+  //             Subtotal: <b>{sx.components_total.toFixed(1)} pt</b>
+  //           </div>
+  //         </div>
+
+  //         {/* JD items table */}
+  //         {sx?.drilldowns?.jd_fit?.items && (
+  //           <div className="pt-3 border-t">
+  //             <div className="font-medium mb-2">JD Fit — itemised</div>
+  //             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-600 mb-1">
+  //               <div className="col-span-5">Item</div>
+  //               <div className="col-span-1">MUST</div>
+  //               <div className="col-span-2">Status/Level</div>
+  //               <div className="col-span-2">JD-fit %</div>
+  //               <div className="col-span-2 text-right">Overall pt</div>
+  //             </div>
+  //             {sx?.drilldowns?.jd_fit?.items?.map((it) => (
+  //               <div
+  //                 key={it.id}
+  //                 className="grid grid-cols-12 gap-2 py-1 border-b border-slate-100"
+  //               >
+  //                 <div className="col-span-5">{it.label}</div>
+  //                 <div className="col-span-1">{it.must ? "Yes" : "No"}</div>
+  //                 <div className="col-span-2">
+  //                   {it.status}
+  //                   {it.level ? `/${it.level}` : ""}
+  //                 </div>
+  //                 <div className="col-span-2">
+  //                   {it.jd_fit_share_pct.toFixed(2)}%
+  //                 </div>
+  //                 <div className="col-span-2 text-right tabular-nums">
+  //                   {it.overall_points.toFixed(2)}
+  //                 </div>
+  //               </div>
+  //             ))}
+  //           </div>
+  //         )}
+
+  //         {/* Tech depth drilldown */}
+  //         {sx.drilldowns?.tech_depth?.areas && (
+  //           <div className="pt-3 border-t">
+  //             <div className="font-medium mb-2">Technical Depth — areas</div>
+  //             {sx.drilldowns?.tech_depth?.areas?.map((a) => (
+  //               <div
+  //                 key={a.area}
+  //                 className="flex justify-between py-1 border-b border-slate-100"
+  //               >
+  //                 <div>
+  //                   <b className="capitalize">{a.area}</b> ({a.level}) —
+  //                   signals:{" "}
+  //                   <span className="text-slate-600">
+  //                     {a.signals.join(", ") || "—"}
+  //                   </span>
+  //                 </div>
+  //                 <div className="tabular-nums">
+  //                   {a.pct_of_tech_depth}% →{" "}
+  //                   <b>{a.overall_points.toFixed(2)} pt</b>
+  //                 </div>
+  //               </div>
+  //             ))}
+  //           </div>
+  //         )}
+
+  //         {/* Delivery parts */}
+  //         {sx.drilldowns?.delivery?.parts && (
+  //           <div className="pt-3 border-t">
+  //             <div className="font-medium mb-2">Delivery Readiness — parts</div>
+  //             {sx.drilldowns?.delivery?.parts?.map((p) => (
+  //               <div key={p.key} className="flex justify-between py-0.5">
+  //                 <span>
+  //                   {p.label}
+  //                   {typeof p.count === "number" ? ` (x${p.count})` : ""}
+  //                 </span>
+  //                 <span className="tabular-nums">
+  //                   {p.pct}% of delivery → <b>{(0.12 * p.pct).toFixed(2)} pt</b>
+  //                 </span>
+  //               </div>
+  //             ))}
+  //           </div>
+  //         )}
+
+  //         {/* Formatting & Impact evidence */}
+  //         <div className="pt-3 border-t grid md:grid-cols-2 gap-4">
+  //           <div>
+  //             <div className="font-medium mb-1">Formatting evidence</div>
+  //             <div className="text-slate-700">
+  //               Bullets {sx.drilldowns.formatting.parts.bullets}/
+  //               {sx.drilldowns.formatting.parts.lines}, Sections{" "}
+  //               {sx.drilldowns.formatting.parts.sections}, Dates{" "}
+  //               {sx.drilldowns.formatting.parts.dates}
+  //             </div>
+  //             <div className="text-slate-500 text-xs">
+  //               {sx.drilldowns.formatting.parts.formula}
+  //             </div>
+  //           </div>
+  //           <div>
+  //             <div className="font-medium mb-1">Impact evidence</div>
+  //             <div className="text-slate-700">
+  //               Metrics {sx.drilldowns.impact.parts.metricsCount}, Strong verbs{" "}
+  //               {sx.drilldowns.impact.parts.strongVerbsCount}
+  //             </div>
+  //             <div className="text-slate-500 text-xs">
+  //               {sx.drilldowns.impact.parts.formula}
+  //             </div>
+  //           </div>
+  //         </div>
+
+  //         {/* ATS list */}
+  //         <div className="pt-3 border-t">
+  //           <div className="font-medium mb-2">ATS keywords</div>
+  //           <div className="mb-1">
+  //             Coverage: <b>{sx.drilldowns.keywords.coverage_pct}%</b>
+  //           </div>
+  //           <div className="grid md:grid-cols-2 gap-3">
+  //             <div>
+  //               <div className="text-emerald-700 font-medium">Matched</div>
+  //               <div className="text-slate-700">
+  //                 {sx.drilldowns.keywords.matched.join(", ") || "—"}
+  //               </div>
+  //             </div>
+  //             <div>
+  //               <div className="text-red-700 font-medium">Missing</div>
+  //               <div className="text-slate-700">
+  //                 {sx.drilldowns.keywords.missing.join(", ") || "—"}
+  //               </div>
+  //             </div>
+  //           </div>
+  //         </div>
+
+  //         {/* Deductions */}
+  //         {sx?.penalties?.length > 0 && (
+  //           <div className="pt-3 border-t">
+  //             <div className="font-medium mb-2 text-red-700">Deductions</div>
+  //             {sx.penalties?.map((p, i) => (
+  //               <div key={i} className="mb-2">
+  //                 <div className="flex justify-between">
+  //                   <span>
+  //                     {p.reason}
+  //                     {p.details ? ` — ${p.details}` : ""}
+  //                   </span>
+  //                   <span className="text-red-700 font-semibold">
+  //                     −{p.points} pt
+  //                   </span>
+  //                 </div>
+  //                 {p.failed_musts?.length ? (
+  //                   <ul className="list-disc ml-5 text-slate-700">
+  //                     {p.failed_musts.map((m) => (
+  //                       <li key={m.id}>{m.label}</li>
+  //                     ))}
+  //                   </ul>
+  //                 ) : null}
+  //               </div>
+  //             ))}
+  //             <div className="text-right">
+  //               After penalty: <b>{sx.after_penalty.toFixed(1)} pt</b>
+  //             </div>
+  //           </div>
+  //         )}
+
+  //         {/* LLM blend */}
+  //         <div className="pt-3 border-t flex justify-between">
+  //           <span>
+  //             LLM blend{" "}
+  //             {sx.llm_adjustment.enabled
+  //               ? `(weight ${sx.llm_adjustment.weight_pct}%, model overall ${sx.llm_adjustment.llm_overall}%)`
+  //               : "(disabled)"}
+  //           </span>
+  //           <span
+  //             className={
+  //               sx.llm_adjustment.delta >= 0
+  //                 ? "text-emerald-700"
+  //                 : "text-red-700"
+  //             }
+  //           >
+  //             {sx.llm_adjustment.delta >= 0 ? "+" : ""}
+  //             {sx.llm_adjustment.delta.toFixed(1)} pt
+  //           </span>
+  //         </div>
+
+  //         <div className="pt-2 text-right border-t">
+  //           Final overall: <b className="tabular-nums">{sx.final_overall}%</b>
+  //         </div>
+  //       </CardContent>
+  //     </Card>
+  //   );
+  // }
+
+  function ScoreWhyCard({ ex }: { ex?: Extended }) {
+  const sx = ex?.score_explain as ScoreExplain | undefined;
+  if (!sx) return null;
+
+  return (
+    <Card className="shadow-sm border-slate-200">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+          <BarChart4 className="h-5 w-5" /> Why this score?
+        </CardTitle>
+        <CardDescription className="text-xs sm:text-sm">
+          {sx.formula}
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-6 text-sm text-slate-800">
+        {/* Components (points before penalty) */}
+        <section>
+          <div className="font-medium mb-3">Components (points before penalty)</div>
+          <ul className="space-y-2">
             {sx.components.map((c) => (
-              <div key={c.key} className="flex items-center gap-3 mb-1">
-                <div className="w-36 text-slate-600">{c.label}</div>
-                <div className="flex-1 h-2 bg-slate-100 rounded">
+              <li
+                key={c.key}
+                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+              >
+                {/* label */}
+                <div className="text-slate-600 sm:w-40 sm:shrink-0">{c.label}</div>
+
+                {/* bar */}
+                <div className="w-full h-2 bg-slate-100 rounded">
                   <div
-                    className="h-2 bg-slate-400"
+                    className="h-2 bg-slate-400 rounded"
                     style={{ width: `${Math.min(100, c.points)}%` }}
                   />
                 </div>
-                <div className="w-44 text-right tabular-nums">
-                  {c.raw}% × {c.weight.toFixed(2)} ={" "}
-                  <b>{c.points.toFixed(1)} pt</b>
-                </div>
-              </div>
-            ))}
-            <div className="mt-1 text-right">
-              Subtotal: <b>{sx.components_total.toFixed(1)} pt</b>
-            </div>
-          </div>
 
-          {/* JD items table */}
-          {sx?.drilldowns?.jd_fit?.items && (
-            <div className="pt-3 border-t">
-              <div className="font-medium mb-2">JD Fit — itemised</div>
-              <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-600 mb-1">
-                <div className="col-span-5">Item</div>
-                <div className="col-span-1">MUST</div>
-                <div className="col-span-2">Status/Level</div>
-                <div className="col-span-2">JD-fit %</div>
-                <div className="col-span-2 text-right">Overall pt</div>
-              </div>
-              {sx?.drilldowns?.jd_fit?.items?.map((it) => (
+                {/* numbers */}
+                <div className="text-right sm:w-44 sm:shrink-0 tabular-nums text-xs sm:text-sm">
+                  {c.raw}% × {c.weight.toFixed(2)} = <b>{c.points.toFixed(1)} pt</b>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 text-right text-xs sm:text-sm">
+            Subtotal: <b>{sx.components_total.toFixed(1)} pt</b>
+          </div>
+        </section>
+
+        {/* JD Fit — itemised */}
+        {sx?.drilldowns?.jd_fit?.items && (
+          <section className="pt-4 border-t">
+            <div className="font-medium mb-2">JD Fit — itemised</div>
+
+            {/* Table header (desktop) */}
+            <div className="hidden sm:grid grid-cols-12 gap-2 text-xs font-medium text-slate-600 mb-1">
+              <div className="col-span-5">Item</div>
+              <div className="col-span-1">MUST</div>
+              <div className="col-span-2">Status/Level</div>
+              <div className="col-span-2">JD-fit %</div>
+              <div className="col-span-2 text-right">Overall pt</div>
+            </div>
+
+            {/* Desktop rows */}
+            <div className="hidden sm:block">
+              {sx.drilldowns.jd_fit.items.map((it) => (
                 <div
                   key={it.id}
-                  className="grid grid-cols-12 gap-2 py-1 border-b border-slate-100"
+                  className="grid grid-cols-12 gap-2 py-1 border-b border-slate-100 text-sm"
                 >
                   <div className="col-span-5">{it.label}</div>
                   <div className="col-span-1">{it.must ? "Yes" : "No"}</div>
@@ -286,125 +521,153 @@ export default function AnalyzeResume3Step() {
                     {it.status}
                     {it.level ? `/${it.level}` : ""}
                   </div>
-                  <div className="col-span-2">
-                    {it.jd_fit_share_pct.toFixed(2)}%
-                  </div>
+                  {/* FIXED: removed stray `</` */}
+                  <div className="col-span-2">{it.jd_fit_share_pct.toFixed(2)}%</div>
                   <div className="col-span-2 text-right tabular-nums">
                     {it.overall_points.toFixed(2)}
                   </div>
                 </div>
               ))}
             </div>
-          )}
 
-          {/* Tech depth drilldown */}
-          {sx.drilldowns?.tech_depth?.areas && (
-            <div className="pt-3 border-t">
-              <div className="font-medium mb-2">Technical Depth — areas</div>
-              {sx.drilldowns?.tech_depth?.areas?.map((a) => (
+            {/* Mobile cards (scroll-free) */}
+            <div className="sm:hidden space-y-3">
+              {sx.drilldowns.jd_fit.items.map((it) => (
                 <div
-                  key={a.area}
-                  className="flex justify-between py-1 border-b border-slate-100"
+                  key={it.id}
+                  className="rounded-lg border border-slate-200 p-3 text-sm space-y-1"
                 >
-                  <div>
-                    <b className="capitalize">{a.area}</b> ({a.level}) —
-                    signals:{" "}
-                    <span className="text-slate-600">
-                      {a.signals.join(", ") || "—"}
+                  <div className="font-medium">{it.label}</div>
+                  <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+                    <span><b>MUST:</b> {it.must ? "Yes" : "No"}</span>
+                    <span>
+                      <b>Status:</b> {it.status}{it.level ? `/${it.level}` : ""}
                     </span>
-                  </div>
-                  <div className="tabular-nums">
-                    {a.pct_of_tech_depth}% →{" "}
-                    <b>{a.overall_points.toFixed(2)} pt</b>
+                    <span><b>JD-fit:</b> {it.jd_fit_share_pct.toFixed(2)}%</span>
+                    <span className="ml-auto sm:ml-0">
+                      <b>Pt:</b> {it.overall_points.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
-          )}
+          </section>
+        )}
 
-          {/* Delivery parts */}
-          {sx.drilldowns?.delivery?.parts && (
-            <div className="pt-3 border-t">
-              <div className="font-medium mb-2">Delivery Readiness — parts</div>
-              {sx.drilldowns?.delivery?.parts?.map((p) => (
-                <div key={p.key} className="flex justify-between py-0.5">
-                  <span>
+        {/* Technical Depth — areas */}
+        {sx.drilldowns?.tech_depth?.areas && (
+          <section className="pt-4 border-t">
+            <div className="font-medium mb-2">Technical Depth — areas</div>
+            <div className="space-y-2">
+              {sx.drilldowns.tech_depth.areas.map((a) => (
+                <div
+                  key={a.area}
+                  className="flex flex-col gap-1 py-1 border-b border-slate-100 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="text-sm">
+                    <b className="capitalize">{a.area}</b> ({a.level}) —{" "}
+                    <span className="text-slate-600">
+                      signals: {a.signals.join(", ") || "—"}
+                    </span>
+                  </div>
+                  <div className="tabular-nums text-xs sm:text-sm">
+                    {a.pct_of_tech_depth}% → <b>{a.overall_points.toFixed(2)} pt</b>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Delivery Readiness — parts */}
+        {sx.drilldowns?.delivery?.parts && (
+          <section className="pt-4 border-t">
+            <div className="font-medium mb-2">Delivery Readiness — parts</div>
+            <div className="space-y-1">
+              {sx.drilldowns.delivery.parts.map((p) => (
+                <div
+                  key={p.key}
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-0.5"
+                >
+                  <span className="text-sm">
                     {p.label}
                     {typeof p.count === "number" ? ` (x${p.count})` : ""}
                   </span>
-                  <span className="tabular-nums">
+                  <span className="tabular-nums text-xs sm:text-sm">
                     {p.pct}% of delivery → <b>{(0.12 * p.pct).toFixed(2)} pt</b>
                   </span>
                 </div>
               ))}
             </div>
-          )}
+          </section>
+        )}
 
-          {/* Formatting & Impact evidence */}
-          <div className="pt-3 border-t grid md:grid-cols-2 gap-4">
+        {/* Formatting & Impact evidence */}
+        <section className="pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div className="font-medium mb-1">Formatting evidence</div>
+            <div className="text-slate-700 text-sm">
+              Bullets {sx.drilldowns.formatting.parts.bullets}/
+              {sx.drilldowns.formatting.parts.lines}, Sections{" "}
+              {sx.drilldowns.formatting.parts.sections}, Dates{" "}
+              {sx.drilldowns.formatting.parts.dates}
+            </div>
+            <div className="text-slate-500 text-[11px] sm:text-xs">
+              {sx.drilldowns.formatting.parts.formula}
+            </div>
+          </div>
+          <div>
+            <div className="font-medium mb-1">Impact evidence</div>
+            <div className="text-slate-700 text-sm">
+              Metrics {sx.drilldowns.impact.parts.metricsCount}, Strong verbs{" "}
+              {sx.drilldowns.impact.parts.strongVerbsCount}
+            </div>
+            <div className="text-slate-500 text-[11px] sm:text-xs">
+              {sx.drilldowns.impact.parts.formula}
+            </div>
+          </div>
+        </section>
+
+        {/* ATS keywords */}
+        <section className="pt-4 border-t">
+          <div className="font-medium mb-2">ATS keywords</div>
+          <div className="mb-1 text-sm">
+            Coverage: <b>{sx.drilldowns.keywords.coverage_pct}%</b>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <div className="font-medium mb-1">Formatting evidence</div>
-              <div className="text-slate-700">
-                Bullets {sx.drilldowns.formatting.parts.bullets}/
-                {sx.drilldowns.formatting.parts.lines}, Sections{" "}
-                {sx.drilldowns.formatting.parts.sections}, Dates{" "}
-                {sx.drilldowns.formatting.parts.dates}
-              </div>
-              <div className="text-slate-500 text-xs">
-                {sx.drilldowns.formatting.parts.formula}
+              <div className="text-emerald-700 font-medium">Matched</div>
+              <div className="text-slate-700 text-sm break-words">
+                {sx.drilldowns.keywords.matched.join(", ") || "—"}
               </div>
             </div>
             <div>
-              <div className="font-medium mb-1">Impact evidence</div>
-              <div className="text-slate-700">
-                Metrics {sx.drilldowns.impact.parts.metricsCount}, Strong verbs{" "}
-                {sx.drilldowns.impact.parts.strongVerbsCount}
-              </div>
-              <div className="text-slate-500 text-xs">
-                {sx.drilldowns.impact.parts.formula}
+              <div className="text-red-700 font-medium">Missing</div>
+              <div className="text-slate-700 text-sm break-words">
+                {sx.drilldowns.keywords.missing.join(", ") || "—"}
               </div>
             </div>
           </div>
+        </section>
 
-          {/* ATS list */}
-          <div className="pt-3 border-t">
-            <div className="font-medium mb-2">ATS keywords</div>
-            <div className="mb-1">
-              Coverage: <b>{sx.drilldowns.keywords.coverage_pct}%</b>
-            </div>
-            <div className="grid md:grid-cols-2 gap-3">
-              <div>
-                <div className="text-emerald-700 font-medium">Matched</div>
-                <div className="text-slate-700">
-                  {sx.drilldowns.keywords.matched.join(", ") || "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-red-700 font-medium">Missing</div>
-                <div className="text-slate-700">
-                  {sx.drilldowns.keywords.missing.join(", ") || "—"}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Deductions */}
-          {sx?.penalties?.length > 0 && (
-            <div className="pt-3 border-t">
-              <div className="font-medium mb-2 text-red-700">Deductions</div>
-              {sx.penalties?.map((p, i) => (
-                <div key={i} className="mb-2">
-                  <div className="flex justify-between">
-                    <span>
+        {/* Deductions */}
+        {sx?.penalties?.length > 0 && (
+          <section className="pt-4 border-t">
+            <div className="font-medium mb-2 text-red-700">Deductions</div>
+            <div className="space-y-2">
+              {sx.penalties.map((p, i) => (
+                <div key={i} className="space-y-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-sm">
                       {p.reason}
                       {p.details ? ` — ${p.details}` : ""}
                     </span>
-                    <span className="text-red-700 font-semibold">
+                    <span className="text-red-700 font-semibold text-sm">
                       −{p.points} pt
                     </span>
                   </div>
                   {p.failed_musts?.length ? (
-                    <ul className="list-disc ml-5 text-slate-700">
+                    <ul className="list-disc ml-5 text-slate-700 text-sm">
                       {p.failed_musts.map((m) => (
                         <li key={m.id}>{m.label}</li>
                       ))}
@@ -412,39 +675,42 @@ export default function AnalyzeResume3Step() {
                   ) : null}
                 </div>
               ))}
-              <div className="text-right">
-                After penalty: <b>{sx.after_penalty.toFixed(1)} pt</b>
-              </div>
             </div>
-          )}
+            <div className="mt-2 text-right text-sm">
+              After penalty: <b>{sx.after_penalty.toFixed(1)} pt</b>
+            </div>
+          </section>
+        )}
 
-          {/* LLM blend */}
-          <div className="pt-3 border-t flex justify-between">
-            <span>
+        {/* LLM blend */}
+        <section className="pt-4 border-t">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+            <span className="text-sm">
               LLM blend{" "}
               {sx.llm_adjustment.enabled
                 ? `(weight ${sx.llm_adjustment.weight_pct}%, model overall ${sx.llm_adjustment.llm_overall}%)`
                 : "(disabled)"}
             </span>
             <span
-              className={
-                sx.llm_adjustment.delta >= 0
-                  ? "text-emerald-700"
-                  : "text-red-700"
-              }
+              className={`font-medium ${
+                sx.llm_adjustment.delta >= 0 ? "text-emerald-700" : "text-red-700"
+              }`}
             >
               {sx.llm_adjustment.delta >= 0 ? "+" : ""}
               {sx.llm_adjustment.delta.toFixed(1)} pt
             </span>
           </div>
-
-          <div className="pt-2 text-right border-t">
+          <div className="pt-2 text-center sm:text-right border-t mt-3 text-sm">
             Final overall: <b className="tabular-nums">{sx.final_overall}%</b>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
+        </section>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+  
 
   function highlightNumbers(s: string) {
     // Wrap % and numbers in <mark> (subtle)
@@ -1381,12 +1647,149 @@ export default function AnalyzeResume3Step() {
               </Card>
 
               <CardHeader>
-                <CardTitle className="text-base">Job Description</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-base sm:text-lg">Job Description</CardTitle>
+                <CardDescription className="text-sm">
                   Select how you want to provide the JD.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
+  {/* Mode switch */}
+  <div className="w-full">
+    <div
+      className="
+        grid grid-cols-1 gap-2
+        sm:grid-cols-3 sm:gap-3
+      "
+      role="tablist"
+    >
+      <Button
+        role="tab"
+        aria-selected={jdMode === "default"}
+        variant={jdMode === "default" ? "default" : "outline"}
+        size="sm"
+        className="w-full"
+        onClick={() => setJdMode("default")}
+      >
+        Use default SYMB JD
+      </Button>
+      <Button
+        role="tab"
+        aria-selected={jdMode === "upload"}
+        variant={jdMode === "upload" ? "default" : "outline"}
+        size="sm"
+        className="w-full"
+        onClick={() => setJdMode("upload")}
+      >
+        Upload JD
+      </Button>
+      <Button
+        role="tab"
+        aria-selected={jdMode === "text"}
+        variant={jdMode === "text" ? "default" : "outline"}
+        size="sm"
+        className="w-full"
+        onClick={() => setJdMode("text")}
+      >
+        Write JD
+      </Button>
+    </div>
+  </div>
+
+  {/* Upload mode */}
+  {jdMode === "upload" && (
+    <div
+      className="
+        flex flex-col gap-3
+        sm:flex-row sm:items-center
+      "
+    >
+      <Input
+        type="file"
+        accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        onChange={(e) => setJdFile(e.target.files?.[0] || null)}
+        className="w-full sm:max-w-md"
+      />
+      {jdFile && (
+        <div className="flex items-center justify-between sm:justify-start gap-2 text-xs text-gray-600 w-full sm:w-auto">
+          <div className="min-w-0 max-w-full sm:max-w-xs">
+            <div className="truncate font-medium" title={jdFile.name}>
+              {jdFile.name}
+            </div>
+            <div className="text-gray-500">
+              {(jdFile.size / 1024).toFixed(1)} KB
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setJdFile(null)}
+            className="h-8 w-8 shrink-0"
+            aria-label="Clear JD file"
+            title="Clear file"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  )}
+
+  {/* Text mode */}
+  {jdMode === "text" && (
+    <div className="space-y-2">
+      <textarea
+        className="
+          w-full rounded border p-3 text-sm
+          min-h-[160px]
+          focus:outline-none focus:ring-2 focus:ring-blue-500
+        "
+        placeholder={`Paste or type the JD here. One requirement per line.
+
+Tip: mark must-haves with words like "Required", "Must", or "3+ years".`}
+        value={jdText}
+        onChange={(e) => setJdText(e.target.value)}
+      />
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setJdText(getJDExample(role))}
+          >
+            Use example JD
+          </Button>
+          <span className="text-xs text-gray-500">
+            We’ll detect must-haves and tags automatically.
+          </span>
+        </div>
+        <span className="text-[11px] text-gray-400">
+          {jdText.trim().length} chars
+        </span>
+      </div>
+    </div>
+  )}
+
+  {/* Default mode hint */}
+  {jdMode === "default" && (
+    <div className="text-xs sm:text-sm text-gray-600 leading-relaxed">
+      Using the built-in SYMB JD for <b>{formatValue(role)}</b>. You can switch
+      to “Upload JD” or “Write JD” anytime.
+    </div>
+  )}
+
+  {/* JD origin badge (optional, wraps on mobile) */}
+  {result?.extended?.jd_origin && (
+    <div className="text-xs text-gray-500 pt-1 break-words">
+      JD mode: <b>{result.extended.jd_origin.mode}</b>
+      {result.extended.jd_origin.items
+        ? ` • ${result.extended.jd_origin.items} items`
+        : ""}
+      {result.extended.jd_origin.note ? ` — ${result.extended.jd_origin.note}` : ""}
+    </div>
+  )}
+</CardContent>
+              {/* <CardContent className="space-y-3">
                 <div className="flex gap-2">
                   <Button
                     variant={jdMode === "default" ? "default" : "outline"}
@@ -1464,7 +1867,7 @@ export default function AnalyzeResume3Step() {
                     You can switch to “Upload JD” or “Write JD” anytime.
                   </div>
                 )}
-              </CardContent>
+              </CardContent> */}
 
               {result?.extended?.jd_origin && (
                 <div className="text-xs text-gray-500 mt-2">
