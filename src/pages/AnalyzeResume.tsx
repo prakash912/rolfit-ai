@@ -207,7 +207,7 @@ type Analysis = {
   analysisTimestamp: number;
 };
 
-const API_ANALYZE = "http://localhost:3000/api/analyze";
+const API_ANALYZE = process.env.VITE_API_BASE || "https://rolfit-ai-1.onrender.com/api/analyze";
 
 /* ======================================================================== */
 export default function AnalyzeResume3Step() {
