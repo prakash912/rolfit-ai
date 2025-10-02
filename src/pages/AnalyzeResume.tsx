@@ -1033,28 +1033,28 @@ export default function AnalyzeResume3Step() {
     doc.text(`Generated: ${new Date().toLocaleString()}`, left, (y += 16));
 
     // === Category Breakdown ===
-    y += 16;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text("Category Breakdown", left, (y += 20));
+    // y += 16;
+    // doc.setFont("helvetica", "bold");
+    // doc.setFontSize(14);
+    // doc.text("Category Breakdown", left, (y += 20));
 
-    autoTable(doc, {
-      startY: y + 10,
-      styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-      headStyles: { fillColor: [33, 150, 243] }, // blue header
-      head: [["Category", "Score"]],
-      body: [
-        ["Role Fit", `${cat.role_fit}%`],
-        ["Tech Depth Knowedge", `${cat.tech_depth}%`],
-        ["Delivery", `${cat.delivery}%`],
-        ["Risk to hire(Must be less than 60%)", `${cat.risk}%`],
-      ],
-      theme: "striped",
-      margin: { left, right: left },
-    });
+    // autoTable(doc, {
+    //   startY: y + 10,
+    //   styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
+    //   headStyles: { fillColor: [33, 150, 243] }, // blue header
+    //   head: [["Category", "Score"]],
+    //   body: [
+    //     ["Role Fit", `${cat.role_fit}%`],
+    //     ["Tech Depth Knowedge", `${cat.tech_depth}%`],
+    //     ["Delivery", `${cat.delivery}%`],
+    //     ["Risk to hire(Must be less than 60%)", `${cat.risk}%`],
+    //   ],
+    //   theme: "striped",
+    //   margin: { left, right: left },
+    // });
 
     // Advance y to below the table
-    y = (doc as any).lastAutoTable?.finalY || y + 40;
+    // y = (doc as any).lastAutoTable?.finalY || y + 40;
 
     // === JD Checklist (from evaluated results) ===
     const checklist: Array<{
@@ -2010,12 +2010,12 @@ export default function AnalyzeResume3Step() {
               </div>
 
               {/* Debug */}
-              <details className="text-sm text-gray-600">
+              {/* <details className="text-sm text-gray-600">
                 <summary className="cursor-pointer">Debug JSON</summary>
                 <pre className="mt-2 whitespace-pre-wrap break-words bg-slate-50 border p-3 rounded">
                   {JSON.stringify(result, null, 2)}
                 </pre>
-              </details>
+              </details> */}
             </div>
           )}
         </div>

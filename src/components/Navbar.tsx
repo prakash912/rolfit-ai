@@ -33,6 +33,7 @@ export function Navbar() {
 
   const handleGetStartedClick = () => {
     navigate('/analyze');
+    window.location.href = "/analyze";
   };
 
   const renderAuthButtons = () => {

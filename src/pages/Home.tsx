@@ -89,7 +89,7 @@ const Home = () => {
               
               <p className="text-base sm:text-lg md:text-xl text-slate-600 mb-6 sm:mb-8 leading-relaxed">
   At <strong>Companies</strong>, HR team faces the challenge of scanning over <strong>4,000 resumes</strong> 
-  to find the right candidates. This project, built by <strong>Tech Lead Mohit</strong> and 
+  to find the right candidates. This project, built by <strong>SYMB Tech Lead Mohit</strong> and 
   <strong> Full Stack Developer Prakash Rai</strong>, helps HR identify the best fit in minutes using AI-powered analysis.
 </p>
               
@@ -269,7 +269,7 @@ const Home = () => {
                   
                   <h3 className="text-xl font-bold text-slate-900 mb-3">Upload Candidate Resume</h3>
                   <p className="text-slate-600">
-                    HR can bulk upload resumes directly into the system, removing the need for manual screening of thousands of files.
+                    HR can upload resumes directly into the system, removing the need for manual screening of thousands of files.
                   </p>
                 </div>
               </div>
@@ -408,7 +408,7 @@ const Home = () => {
                 </div>
                 
                 <p className="text-slate-700 mb-6">
-                 "As a growing startup, we don’t have a big HR team. This platform allowed us to handle bulk hiring like an enterprise, with automated reports that managers loved."
+                 "As a growing startup, we don’t have a big HR team. This platform allowed us to handle hiring like an enterprise, with automated reports that managers loved."
                 </p>
                 
                 <div className="flex items-center">
